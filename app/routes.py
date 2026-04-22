@@ -29,9 +29,10 @@ def health():
 def list_tickets(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    keyword: str | None = Query(None),
     db: Session = Depends(get_db)
 ):
-    return tickets_service.list_tickets(db=db, limit=limit, offset=offset)
+    return tickets_service.list_tickets(db=db, limit=limit, offset=offset, keyword=keyword)
 
 
 @router.get("/tickets/{ticket_id}", response_model=Ticket)

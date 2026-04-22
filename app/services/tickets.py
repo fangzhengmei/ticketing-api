@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from fastapi import HTTPException
 
 from app.db_models import TicketDB
@@ -12,11 +13,16 @@ ALLOWED_TRANSITIONS = {
 }
 
 
-def list_tickets(db: Session, limit: int, offset: int):
-    total = db.query(TicketDB).count()
+def list_tickets(db: Session, limit: int, offset: int, keyword: str | None = None):
+    query = db.query(TicketDB)
+    
+    if keyword:
+        query = query.filter(func.lower(TicketDB.title).like(func.lower(f"%{keyword}%")))
+    
+    total = query.count()
 
     items = (
-        db.query(TicketDB)
+        query
         .order_by(TicketDB.id)
         .offset(offset)
         .limit(limit)

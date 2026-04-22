@@ -165,3 +165,69 @@ def test_status_transitions_forbidden_return_409(client, start_status, new_statu
     res = client.patch(f"/tickets/{ticket_id}", json={"status": new_status})
     assert res.status_code == 409
     assert res.json()["detail"] == "Invalid status transition"
+
+
+def test_list_tickets_without_keyword_returns_all(client):
+    client.post("/tickets", json={"title": "Ticket One", "status": "open"})
+    client.post("/tickets", json={"title": "Ticket Two", "status": "open"})
+    client.post("/tickets", json={"title": "Another Ticket", "status": "open"})
+
+    res = client.get("/tickets?limit=10&offset=0")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 3
+    assert len(data["items"]) == 3
+
+
+def test_list_tickets_with_keyword_returns_matching(client):
+    client.post("/tickets", json={"title": "Login Issue", "status": "open"})
+    client.post("/tickets", json={"title": "Payment Failed", "status": "open"})
+    client.post("/tickets", json={"title": "User Login Problem", "status": "open"})
+    client.post("/tickets", json={"title": "Dashboard Error", "status": "open"})
+
+    res = client.get("/tickets?limit=10&offset=0&keyword=Login")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 2
+    titles = [item["title"] for item in data["items"]]
+    assert "Login Issue" in titles
+    assert "User Login Problem" in titles
+
+
+def test_list_tickets_with_keyword_case_insensitive(client):
+    client.post("/tickets", json={"title": "BUG: Login Failed", "status": "open"})
+    client.post("/tickets", json={"title": "Feature: login page", "status": "open"})
+    client.post("/tickets", json={"title": "Other Issue", "status": "open"})
+
+    res_lower = client.get("/tickets?limit=10&offset=0&keyword=bug")
+    assert res_lower.status_code == 200
+    assert res_lower.json()["total"] == 1
+
+    res_upper = client.get("/tickets?limit=10&offset=0&keyword=LOGIN")
+    assert res_upper.status_code == 200
+    assert res_upper.json()["total"] == 2
+
+
+def test_list_tickets_with_keyword_fuzzy_match(client):
+    client.post("/tickets", json={"title": "Customer Support Request", "status": "open"})
+    client.post("/tickets", json={"title": "Support Team Contact", "status": "open"})
+    client.post("/tickets", json={"title": "Technical Issue", "status": "open"})
+
+    res = client.get("/tickets?limit=10&offset=0&keyword=Support")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 2
+    titles = [item["title"] for item in data["items"]]
+    assert "Customer Support Request" in titles
+    assert "Support Team Contact" in titles
+
+
+def test_list_tickets_with_keyword_no_match_returns_empty(client):
+    client.post("/tickets", json={"title": "Ticket One", "status": "open"})
+    client.post("/tickets", json={"title": "Ticket Two", "status": "open"})
+
+    res = client.get("/tickets?limit=10&offset=0&keyword=NotFoundKeyword12345")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 0
+    assert data["items"] == []
