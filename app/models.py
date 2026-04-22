@@ -10,6 +10,7 @@ class TicketStatus(str, Enum):
 
 class TicketCreate(BaseModel):
     title: str
+    description: Optional[str] = None
     status: TicketStatus = TicketStatus.open
 
 
@@ -20,6 +21,7 @@ class TicketUpdate(BaseModel):
 class Ticket(BaseModel):
     id: int
     title: str
+    description: Optional[str] = None
     status: TicketStatus
 
     model_config = ConfigDict(from_attributes=True)

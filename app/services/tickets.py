@@ -39,7 +39,11 @@ def get_ticket(db: Session, ticket_id: int) -> TicketDB:
 
 
 def create_ticket(db: Session, payload: TicketCreate) -> TicketDB:
-    ticket = TicketDB(title=payload.title, status=payload.status.value)
+    ticket = TicketDB(
+        title=payload.title,
+        description=payload.description,
+        status=payload.status.value
+    )
     db.add(ticket)
     db.commit()
     db.refresh(ticket)
