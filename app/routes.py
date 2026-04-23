@@ -4,11 +4,15 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.db_models import TicketDB
-from app.models import Ticket, TicketCreate, TicketUpdate, MessageResponse
-from app.models import TicketListResponse, TicketMerge, TicketWithRelations
-from app.models import TicketStatus
+from app.models import (
+    Ticket, TicketCreate, TicketUpdate, MessageResponse,
+    TicketListResponse, TicketMerge, TicketWithRelations, TicketStatus,
+    Comment, CommentCreate, CommentUpdate,
+    CommentListResponse, CommentListWithTicketInfoResponse
+)
 
 from app.services import tickets as tickets_service
+from app.services import comments as comments_service
 
 ALLOWED_TRANSITIONS = {
     TicketStatus.open: {TicketStatus.in_progress, TicketStatus.resolved, TicketStatus.merged},
@@ -68,5 +72,70 @@ def unmerge_ticket(ticket_id: int, db: Session = Depends(get_db)):
 @router.delete("/tickets/{ticket_id}", status_code=204)
 def delete_ticket(ticket_id: int, db: Session = Depends(get_db)):
     tickets_service.delete_ticket(db=db, ticket_id=ticket_id)
+    return None
+
+
+@router.post("/tickets/{ticket_id}/comments", response_model=Comment, status_code=201)
+def create_comment(ticket_id: int, payload: CommentCreate, db: Session = Depends(get_db)):
+    return comments_service.create_comment(db=db, ticket_id=ticket_id, payload=payload)
+
+
+@router.get("/tickets/{ticket_id}/comments", response_model=CommentListResponse)
+def list_comments(
+    ticket_id: int,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    include_merged: bool = Query(False, description="Include comments from merged child tickets"),
+    db: Session = Depends(get_db)
+):
+    total, items = comments_service.list_comments(
+        db=db,
+        ticket_id=ticket_id,
+        limit=limit,
+        offset=offset,
+        include_merged=include_merged,
+    )
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": items,
+    }
+
+
+@router.get("/tickets/{ticket_id}/comments/with-ticket-info", response_model=CommentListWithTicketInfoResponse)
+def list_comments_with_ticket_info(
+    ticket_id: int,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db)
+):
+    total, items = comments_service.list_comments_with_ticket_info(
+        db=db,
+        ticket_id=ticket_id,
+        limit=limit,
+        offset=offset,
+    )
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": items,
+    }
+
+
+@router.get("/comments/{comment_id}", response_model=Comment)
+def get_comment(comment_id: int, db: Session = Depends(get_db)):
+    return comments_service.get_comment(db=db, comment_id=comment_id)
+
+
+@router.patch("/comments/{comment_id}", response_model=Comment)
+def update_comment(comment_id: int, payload: CommentUpdate, db: Session = Depends(get_db)):
+    return comments_service.update_comment(db=db, comment_id=comment_id, payload=payload)
+
+
+@router.delete("/comments/{comment_id}", status_code=204)
+def delete_comment(comment_id: int, db: Session = Depends(get_db)):
+    comments_service.delete_comment(db=db, comment_id=comment_id)
     return None
 

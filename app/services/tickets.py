@@ -73,6 +73,8 @@ def delete_ticket(db: Session, ticket_id: int) -> None:
 
 
 def merge_ticket(db: Session, source_ticket_id: int, payload: TicketMerge) -> TicketDB:
+    from app.services.comments import merge_comments_to_target
+
     if source_ticket_id == payload.target_ticket_id:
         raise HTTPException(
             status_code=400,
@@ -107,6 +109,8 @@ def merge_ticket(db: Session, source_ticket_id: int, payload: TicketMerge) -> Ti
             detail=f"Cannot merge ticket with status: {source_current.value}"
         )
 
+    merge_comments_to_target(db, source_ticket_id, payload.target_ticket_id)
+
     source_ticket.status = TicketStatus.merged.value
     source_ticket.merged_to_id = target_ticket.id
     source_ticket.merged_at = datetime.utcnow()
@@ -118,6 +122,8 @@ def merge_ticket(db: Session, source_ticket_id: int, payload: TicketMerge) -> Ti
 
 
 def unmerge_ticket(db: Session, ticket_id: int) -> TicketDB:
+    from app.services.comments import unmerge_comments_from_target
+
     ticket = get_ticket(db, ticket_id)
 
     if TicketStatus(ticket.status) != TicketStatus.merged:
@@ -125,6 +131,8 @@ def unmerge_ticket(db: Session, ticket_id: int) -> TicketDB:
             status_code=400,
             detail="Ticket is not merged"
         )
+
+    unmerge_comments_from_target(db, ticket_id)
 
     ticket.status = TicketStatus.open.value
     ticket.merged_to_id = None
