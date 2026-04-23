@@ -152,3 +152,41 @@ def get_ticket_with_relations(db: Session, ticket_id: int) -> TicketDB:
     if ticket is None:
         raise HTTPException(status_code=404, detail="Ticket not found")
     return ticket
+
+
+def get_all_merged_ticket_ids(db: Session, ticket_id: int) -> list[int]:
+    from sqlalchemy.orm import joinedload
+
+    def _get_children(tid: int, visited: set[int]) -> list[int]:
+        if tid in visited:
+            return []
+        visited.add(tid)
+
+        ticket = (
+            db.query(TicketDB)
+            .options(joinedload(TicketDB.merged_tickets))
+            .filter(TicketDB.id == tid)
+            .first()
+        )
+
+        if not ticket:
+            return []
+
+        children = []
+        for child in ticket.merged_tickets:
+            children.append(child.id)
+            children.extend(_get_children(child.id, visited))
+
+        return children
+
+    visited = set()
+    return _get_children(ticket_id, visited)
+
+
+def get_root_ticket_id(db: Session, ticket_id: int) -> int:
+    ticket = get_ticket(db, ticket_id)
+
+    while ticket.merged_to_id is not None:
+        ticket = get_ticket(db, ticket.merged_to_id)
+
+    return ticket.id

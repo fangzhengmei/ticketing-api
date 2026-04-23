@@ -341,3 +341,228 @@ class TestCommentListPagination:
 
         res = client.get(f"/tickets/{ticket_id}/comments?limit=1&offset=-1")
         assert res.status_code == 422
+
+
+class TestChainedMerge:
+    def test_chained_merge_comments_aggregated_at_root(self, client, create_ticket, create_comment):
+        ticket_a = create_ticket("Ticket A - Deepest")
+        ticket_b = create_ticket("Ticket B - Middle")
+        ticket_c = create_ticket("Ticket C - Root")
+
+        create_comment(ticket_a["id"], "Comment from A")
+        create_comment(ticket_b["id"], "Comment from B")
+        create_comment(ticket_c["id"], "Comment from C")
+
+        client.post(
+            f"/tickets/{ticket_a['id']}/merge",
+            json={"target_ticket_id": ticket_b["id"], "reason": "A → B"},
+        )
+
+        client.post(
+            f"/tickets/{ticket_b['id']}/merge",
+            json={"target_ticket_id": ticket_c["id"], "reason": "B → C"},
+        )
+
+        root_comments = client.get(f"/tickets/{ticket_c['id']}/comments?include_merged=true")
+        assert root_comments.status_code == 200
+        root_data = root_comments.json()
+        assert root_data["total"] == 3
+
+        contents = {item["content"] for item in root_data["items"]}
+        assert "Comment from A" in contents
+        assert "Comment from B" in contents
+        assert "Comment from C" in contents
+
+    def test_chained_merge_with_ticket_info_shows_all_sources(self, client, create_ticket, create_comment):
+        ticket_a = create_ticket("Ticket A")
+        ticket_b = create_ticket("Ticket B")
+        ticket_c = create_ticket("Ticket C")
+
+        create_comment(ticket_a["id"], "A's comment")
+        create_comment(ticket_b["id"], "B's comment")
+        create_comment(ticket_c["id"], "C's comment")
+
+        client.post(
+            f"/tickets/{ticket_a['id']}/merge",
+            json={"target_ticket_id": ticket_b["id"], "reason": "A→B"},
+        )
+        client.post(
+            f"/tickets/{ticket_b['id']}/merge",
+            json={"target_ticket_id": ticket_c["id"], "reason": "B→C"},
+        )
+
+        response = client.get(f"/tickets/{ticket_c['id']}/comments/with-ticket-info")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 3
+
+        for item in data["items"]:
+            if item["content"] == "A's comment":
+                assert item["original_ticket_title"] == "Ticket A"
+            elif item["content"] == "B's comment":
+                assert item["original_ticket_title"] == "Ticket B"
+            elif item["content"] == "C's comment":
+                assert item["original_ticket_title"] == "Ticket C"
+
+    def test_unmerge_middle_ticket_breaks_chain(self, client, create_ticket, create_comment):
+        ticket_a = create_ticket("A")
+        ticket_b = create_ticket("B")
+        ticket_c = create_ticket("C")
+
+        create_comment(ticket_a["id"], "A comment")
+        create_comment(ticket_b["id"], "B comment")
+        create_comment(ticket_c["id"], "C comment")
+
+        client.post(f"/tickets/{ticket_a['id']}/merge", json={"target_ticket_id": ticket_b["id"], "reason": ""})
+        client.post(f"/tickets/{ticket_b['id']}/merge", json={"target_ticket_id": ticket_c["id"], "reason": ""})
+
+        before_unmerge = client.get(f"/tickets/{ticket_c['id']}/comments?include_merged=true")
+        assert before_unmerge.json()["total"] == 3
+
+        client.post(f"/tickets/{ticket_b['id']}/unmerge")
+
+        after_unmerge = client.get(f"/tickets/{ticket_c['id']}/comments?include_merged=true")
+        assert after_unmerge.status_code == 200
+        assert after_unmerge.json()["total"] == 1
+        assert after_unmerge.json()["items"][0]["content"] == "C comment"
+
+        b_comments = client.get(f"/tickets/{ticket_b['id']}/comments?include_merged=true")
+        assert b_comments.status_code == 200
+        assert b_comments.json()["total"] == 2
+        b_contents = {item["content"] for item in b_comments.json()["items"]}
+        assert "A comment" in b_contents
+        assert "B comment" in b_contents
+
+
+class TestEdgeCases:
+    def test_add_comment_to_already_merged_ticket(self, client, create_ticket, create_comment):
+        ticket1 = create_ticket("Main Ticket")
+        ticket2 = create_ticket("Duplicate Ticket")
+
+        create_comment(ticket2["id"], "Before merge")
+
+        client.post(
+            f"/tickets/{ticket2['id']}/merge",
+            json={"target_ticket_id": ticket1["id"], "reason": "Duplicate"},
+        )
+
+        new_comment = client.post(
+            f"/tickets/{ticket2['id']}/comments",
+            json={"content": "After merge", "author": "Tester"},
+        )
+        assert new_comment.status_code == 201
+        new_comment_data = new_comment.json()
+        assert new_comment_data["ticket_id"] == ticket2["id"]
+        assert new_comment_data["original_ticket_id"] == ticket2["id"]
+
+        main_comments = client.get(f"/tickets/{ticket1['id']}/comments?include_merged=true")
+        assert main_comments.status_code == 200
+        main_data = main_comments.json()
+        assert main_data["total"] == 2
+
+        contents = {item["content"] for item in main_data["items"]}
+        assert "Before merge" in contents
+        assert "After merge" in contents
+
+    def test_add_comment_to_merged_ticket_in_chain(self, client, create_ticket, create_comment):
+        ticket_a = create_ticket("A")
+        ticket_b = create_ticket("B")
+        ticket_c = create_ticket("C")
+
+        client.post(f"/tickets/{ticket_a['id']}/merge", json={"target_ticket_id": ticket_b["id"], "reason": ""})
+        client.post(f"/tickets/{ticket_b['id']}/merge", json={"target_ticket_id": ticket_c["id"], "reason": ""})
+
+        new_comment = client.post(
+            f"/tickets/{ticket_a['id']}/comments",
+            json={"content": "Added to A after chain merge"},
+        )
+        assert new_comment.status_code == 201
+
+        root_comments = client.get(f"/tickets/{ticket_c['id']}/comments?include_merged=true")
+        assert root_comments.json()["total"] == 1
+        assert root_comments.json()["items"][0]["content"] == "Added to A after chain merge"
+
+    def test_with_ticket_info_after_adding_to_merged_ticket(self, client, create_ticket, create_comment):
+        ticket1 = create_ticket("Main Issue")
+        ticket2 = create_ticket("Duplicate Issue")
+
+        client.post(
+            f"/tickets/{ticket2['id']}/merge",
+            json={"target_ticket_id": ticket1["id"], "reason": "Same problem"},
+        )
+
+        client.post(f"/tickets/{ticket2['id']}/comments", json={"content": "From duplicate after merge"})
+
+        response = client.get(f"/tickets/{ticket1['id']}/comments/with-ticket-info")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 1
+        assert data["items"][0]["content"] == "From duplicate after merge"
+        assert data["items"][0]["original_ticket_title"] == "Duplicate Issue"
+
+    def test_circular_merge_prevented_by_existing_logic(self, client, create_ticket):
+        ticket1 = create_ticket("Ticket 1")
+        ticket2 = create_ticket("Ticket 2")
+
+        client.post(
+            f"/tickets/{ticket2['id']}/merge",
+            json={"target_ticket_id": ticket1["id"], "reason": ""},
+        )
+
+        merge_back = client.post(
+            f"/tickets/{ticket1['id']}/merge",
+            json={"target_ticket_id": ticket2["id"], "reason": ""},
+        )
+        assert merge_back.status_code == 400
+        assert "merged" in merge_back.json()["detail"].lower()
+
+    def test_merge_already_merged_ticket_into_another(self, client, create_ticket):
+        ticket1 = create_ticket("Ticket 1")
+        ticket2 = create_ticket("Ticket 2")
+        ticket3 = create_ticket("Ticket 3")
+
+        client.post(f"/tickets/{ticket2['id']}/merge", json={"target_ticket_id": ticket1["id"], "reason": ""})
+
+        merge_merged = client.post(
+            f"/tickets/{ticket2['id']}/merge",
+            json={"target_ticket_id": ticket3["id"], "reason": ""},
+        )
+        assert merge_merged.status_code == 400
+        assert "already merged" in merge_merged.json()["detail"].lower()
+
+    def test_query_merged_ticket_own_comments(self, client, create_ticket, create_comment):
+        ticket1 = create_ticket("Main")
+        ticket2 = create_ticket("Duplicate")
+
+        create_comment(ticket2["id"], "Comment on duplicate")
+
+        client.post(
+            f"/tickets/{ticket2['id']}/merge",
+            json={"target_ticket_id": ticket1["id"], "reason": ""},
+        )
+
+        merged_ticket_comments = client.get(f"/tickets/{ticket2['id']}/comments")
+        assert merged_ticket_comments.status_code == 200
+        assert merged_ticket_comments.json()["total"] == 1
+        assert merged_ticket_comments.json()["items"][0]["content"] == "Comment on duplicate"
+
+    def test_include_merged_false_only_returns_own_comments(self, client, create_ticket, create_comment):
+        ticket1 = create_ticket("Main")
+        ticket2 = create_ticket("Duplicate")
+
+        create_comment(ticket1["id"], "Main's comment")
+        create_comment(ticket2["id"], "Duplicate's comment")
+
+        client.post(
+            f"/tickets/{ticket2['id']}/merge",
+            json={"target_ticket_id": ticket1["id"], "reason": ""},
+        )
+
+        with_false = client.get(f"/tickets/{ticket1['id']}/comments?include_merged=false")
+        assert with_false.status_code == 200
+        assert with_false.json()["total"] == 1
+        assert with_false.json()["items"][0]["content"] == "Main's comment"
+
+        with_true = client.get(f"/tickets/{ticket1['id']}/comments?include_merged=true")
+        assert with_true.status_code == 200
+        assert with_true.json()["total"] == 2

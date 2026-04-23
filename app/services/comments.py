@@ -40,15 +40,13 @@ def list_comments(
     offset: int,
     include_merged: bool = False,
 ) -> Tuple[int, List[CommentDB]]:
-    from app.services.tickets import get_ticket
+    from app.services.tickets import get_ticket, get_all_merged_ticket_ids
 
     ticket = get_ticket(db, ticket_id)
 
     if include_merged:
-        ticket_ids = [ticket.id]
-        for merged_ticket in ticket.merged_tickets:
-            ticket_ids.append(merged_ticket.id)
-
+        all_child_ids = get_all_merged_ticket_ids(db, ticket.id)
+        ticket_ids = [ticket.id] + all_child_ids
         query = db.query(CommentDB).filter(CommentDB.ticket_id.in_(ticket_ids))
     else:
         query = db.query(CommentDB).filter(CommentDB.ticket_id == ticket.id)
@@ -65,13 +63,12 @@ def list_comments_with_ticket_info(
     limit: int,
     offset: int,
 ) -> Tuple[int, List[dict]]:
-    from app.services.tickets import get_ticket
+    from app.services.tickets import get_ticket, get_all_merged_ticket_ids
 
     ticket = get_ticket(db, ticket_id)
 
-    ticket_ids = [ticket.id]
-    for merged_ticket in ticket.merged_tickets:
-        ticket_ids.append(merged_ticket.id)
+    all_child_ids = get_all_merged_ticket_ids(db, ticket.id)
+    ticket_ids = [ticket.id] + all_child_ids
 
     comments = (
         db.query(CommentDB)
