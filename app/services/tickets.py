@@ -1,14 +1,16 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
+from datetime import datetime
 
 from app.db_models import TicketDB
-from app.models import TicketCreate, TicketUpdate, TicketStatus
+from app.models import TicketCreate, TicketUpdate, TicketStatus, TicketMerge
 
 
 ALLOWED_TRANSITIONS = {
-    TicketStatus.open: {TicketStatus.in_progress, TicketStatus.resolved},
-    TicketStatus.in_progress: {TicketStatus.resolved},
-    TicketStatus.resolved: set(),
+    TicketStatus.open: {TicketStatus.in_progress, TicketStatus.resolved, TicketStatus.merged},
+    TicketStatus.in_progress: {TicketStatus.resolved, TicketStatus.merged},
+    TicketStatus.resolved: {TicketStatus.merged},
+    TicketStatus.merged: set(),
 }
 
 
@@ -68,3 +70,85 @@ def delete_ticket(db: Session, ticket_id: int) -> None:
     ticket = get_ticket(db, ticket_id)
     db.delete(ticket)
     db.commit()
+
+
+def merge_ticket(db: Session, source_ticket_id: int, payload: TicketMerge) -> TicketDB:
+    if source_ticket_id == payload.target_ticket_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot merge a ticket into itself"
+        )
+
+    source_ticket = get_ticket(db, source_ticket_id)
+    target_ticket = get_ticket(db, payload.target_ticket_id)
+
+    if TicketStatus(source_ticket.status) == TicketStatus.merged:
+        raise HTTPException(
+            status_code=400,
+            detail="Source ticket is already merged"
+        )
+
+    if TicketStatus(target_ticket.status) == TicketStatus.merged:
+        raise HTTPException(
+            status_code=400,
+            detail="Target ticket is merged, cannot merge into it"
+        )
+
+    if target_ticket.merged_to_id is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Target ticket is merged into another ticket"
+        )
+
+    source_current = TicketStatus(source_ticket.status)
+    if TicketStatus.merged not in ALLOWED_TRANSITIONS[source_current]:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot merge ticket with status: {source_current.value}"
+        )
+
+    source_ticket.status = TicketStatus.merged.value
+    source_ticket.merged_to_id = target_ticket.id
+    source_ticket.merged_at = datetime.utcnow()
+    source_ticket.merge_reason = payload.reason
+
+    db.commit()
+    db.refresh(source_ticket)
+    return source_ticket
+
+
+def unmerge_ticket(db: Session, ticket_id: int) -> TicketDB:
+    ticket = get_ticket(db, ticket_id)
+
+    if TicketStatus(ticket.status) != TicketStatus.merged:
+        raise HTTPException(
+            status_code=400,
+            detail="Ticket is not merged"
+        )
+
+    ticket.status = TicketStatus.open.value
+    ticket.merged_to_id = None
+    ticket.merged_at = None
+    ticket.merge_reason = None
+
+    db.commit()
+    db.refresh(ticket)
+    return ticket
+
+
+def get_ticket_with_relations(db: Session, ticket_id: int) -> TicketDB:
+    from sqlalchemy.orm import joinedload
+
+    ticket = (
+        db.query(TicketDB)
+        .options(
+            joinedload(TicketDB.merged_to),
+            joinedload(TicketDB.merged_tickets)
+        )
+        .filter(TicketDB.id == ticket_id)
+        .first()
+    )
+
+    if ticket is None:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    return ticket
