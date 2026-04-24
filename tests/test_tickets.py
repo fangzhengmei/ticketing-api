@@ -1,7 +1,12 @@
+import pytest
+from tests.conftest import user_headers
+
+
 def test_create_ticket(client):
     response = client.post(
         "/tickets",
         json={"title": "Test ticket", "status": "open"},
+        headers=user_headers(),
     )
 
     assert response.status_code == 201
@@ -13,10 +18,10 @@ def test_create_ticket(client):
 
 
 def test_list_tickets_returns_metadata(client):
-    client.post("/tickets", json={"title": "Ticket A", "status": "open"})
-    client.post("/tickets", json={"title": "Ticket B", "status": "open"})
+    client.post("/tickets", json={"title": "Ticket A", "status": "open"}, headers=user_headers())
+    client.post("/tickets", json={"title": "Ticket B", "status": "open"}, headers=user_headers())
 
-    response = client.get("/tickets?limit=1&offset=0")
+    response = client.get("/tickets?limit=1&offset=0", headers=user_headers())
     assert response.status_code == 200
 
     data = response.json()
@@ -31,73 +36,96 @@ def test_list_tickets_returns_metadata(client):
     assert isinstance(data["items"], list)
     assert len(data["items"]) == 1
 
+
 def test_list_tickets_limit_constraints(client):
-    res = client.get("/tickets?limit=0&offset=0")
+    res = client.get("/tickets?limit=0&offset=0", headers=user_headers())
     assert res.status_code == 422
 
-    res = client.get("/tickets?limit=101&offset=0")
+    res = client.get("/tickets?limit=101&offset=0", headers=user_headers())
     assert res.status_code == 422
 
-    res = client.get("/tickets?limit=1&offset=-1")
+    res = client.get("/tickets?limit=1&offset=-1", headers=user_headers())
     assert res.status_code == 422
+
 
 def test_get_ticket_not_found(client):
-    res = client.get("/tickets/999999")
+    res = client.get("/tickets/999999", headers=user_headers())
     assert res.status_code == 404
     assert res.json()["detail"] == "Ticket not found"
 
 
 def test_patch_ticket_not_found(client):
-    res = client.patch("/tickets/999999", json={"status": "resolved"})
+    res = client.patch(
+        "/tickets/999999", 
+        json={"status": "resolved"},
+        headers=user_headers()
+    )
     assert res.status_code == 404
     assert res.json()["detail"] == "Ticket not found"
 
 
 def test_delete_ticket_not_found(client):
-    res = client.delete("/tickets/999999")
+    res = client.delete("/tickets/999999", headers=user_headers())
     assert res.status_code == 404
     assert res.json()["detail"] == "Ticket not found"
 
 
 def test_delete_ticket_success_and_then_404(client):
-    # create a ticket
-    created = client.post("/tickets", json={"title": "To delete", "status": "open"})
+    created = client.post(
+        "/tickets", 
+        json={"title": "To delete", "status": "open"},
+        headers=user_headers()
+    )
     assert created.status_code == 201
     ticket_id = created.json()["id"]
 
-    # delete it
-    deleted = client.delete(f"/tickets/{ticket_id}")
+    deleted = client.delete(f"/tickets/{ticket_id}", headers=user_headers())
     assert deleted.status_code == 204
-    assert deleted.text == ""  # 204 should have no body
+    assert deleted.text == ""
 
-    # now it should be gone
-    res = client.get(f"/tickets/{ticket_id}")
+    res = client.get(f"/tickets/{ticket_id}", headers=user_headers())
     assert res.status_code == 404
 
+
 def test_create_ticket_missing_title_returns_422(client):
-    # Missing "title"
-    res = client.post("/tickets", json={"status": "open"})
+    res = client.post(
+        "/tickets", 
+        json={"status": "open"},
+        headers=user_headers()
+    )
     assert res.status_code == 422
 
 
 def test_patch_ticket_invalid_status_returns_422(client):
-    # Create a ticket first
-    created = client.post("/tickets", json={"title": "Ticket", "status": "open"})
+    created = client.post(
+        "/tickets", 
+        json={"title": "Ticket", "status": "open"},
+        headers=user_headers()
+    )
     assert created.status_code == 201
     ticket_id = created.json()["id"]
 
-    # Send invalid status (not in your allowed enum)
-    res = client.patch(f"/tickets/{ticket_id}", json={"status": "not_a_real_status"})
+    res = client.patch(
+        f"/tickets/{ticket_id}", 
+        json={"status": "not_a_real_status"},
+        headers=user_headers()
+    )
     assert res.status_code == 422
 
 
 def test_list_tickets_offset_beyond_total_returns_empty_items(client):
-    # Create 2 tickets
-    client.post("/tickets", json={"title": "A", "status": "open"})
-    client.post("/tickets", json={"title": "B", "status": "open"})
+    client.post(
+        "/tickets", 
+        json={"title": "A", "status": "open"},
+        headers=user_headers()
+    )
+    client.post(
+        "/tickets", 
+        json={"title": "B", "status": "open"},
+        headers=user_headers()
+    )
 
-    # Offset bigger than total -> should return empty list, not error
-    res = client.get("/tickets?limit=10&offset=999")
+    res = client.get("/tickets?limit=10&offset=999", headers=user_headers())
     assert res.status_code == 200
 
     data = res.json()
@@ -108,27 +136,42 @@ def test_list_tickets_offset_beyond_total_returns_empty_items(client):
 
 
 def test_list_tickets_limit_above_max_returns_422(client):
-    res = client.get("/tickets?limit=101&offset=0")
+    res = client.get("/tickets?limit=101&offset=0", headers=user_headers())
     assert res.status_code == 422
 
+
 def test_patch_ticket_forbidden_transition_returns_409(client):
-    created = client.post("/tickets", json={"title": "X", "status": "resolved"})
+    created = client.post(
+        "/tickets", 
+        json={"title": "X", "status": "resolved"},
+        headers=user_headers()
+    )
     ticket_id = created.json()["id"]
 
-    res = client.patch(f"/tickets/{ticket_id}", json={"status": "open"})
+    res = client.patch(
+        f"/tickets/{ticket_id}", 
+        json={"status": "open"},
+        headers=user_headers()
+    )
     assert res.status_code == 409
     assert res.json()["detail"] == "Invalid status transition"
 
 
 def test_patch_ticket_allowed_transition_ok(client):
-    created = client.post("/tickets", json={"title": "X", "status": "open"})
+    created = client.post(
+        "/tickets", 
+        json={"title": "X", "status": "open"},
+        headers=user_headers()
+    )
     ticket_id = created.json()["id"]
 
-    res = client.patch(f"/tickets/{ticket_id}", json={"status": "in_progress"})
+    res = client.patch(
+        f"/tickets/{ticket_id}", 
+        json={"status": "in_progress"},
+        headers=user_headers()
+    )
     assert res.status_code == 200
     assert res.json()["status"] == "in_progress"
-
-import pytest
 
 
 @pytest.mark.parametrize(
@@ -140,11 +183,19 @@ import pytest
     ],
 )
 def test_status_transitions_allowed(client, start_status, new_status):
-    created = client.post("/tickets", json={"title": "T", "status": start_status})
+    created = client.post(
+        "/tickets", 
+        json={"title": "T", "status": start_status},
+        headers=user_headers()
+    )
     assert created.status_code == 201
     ticket_id = created.json()["id"]
 
-    res = client.patch(f"/tickets/{ticket_id}", json={"status": new_status})
+    res = client.patch(
+        f"/tickets/{ticket_id}", 
+        json={"status": new_status},
+        headers=user_headers()
+    )
     assert res.status_code == 200
     assert res.json()["status"] == new_status
 
@@ -158,10 +209,18 @@ def test_status_transitions_allowed(client, start_status, new_status):
     ],
 )
 def test_status_transitions_forbidden_return_409(client, start_status, new_status):
-    created = client.post("/tickets", json={"title": "T", "status": start_status})
+    created = client.post(
+        "/tickets", 
+        json={"title": "T", "status": start_status},
+        headers=user_headers()
+    )
     assert created.status_code == 201
     ticket_id = created.json()["id"]
 
-    res = client.patch(f"/tickets/{ticket_id}", json={"status": new_status})
+    res = client.patch(
+        f"/tickets/{ticket_id}", 
+        json={"status": new_status},
+        headers=user_headers()
+    )
     assert res.status_code == 409
     assert res.json()["detail"] == "Invalid status transition"

@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Protocol
 from dataclasses import dataclass
 
 from app.db_models import TicketDB
@@ -9,10 +9,18 @@ from app.models import TicketCreate, TicketUpdate, TicketStatus, SlaStatus, Tick
 from app.config import get_sla_warning_threshold_hours
 
 
+class UserWithPermission(Protocol):
+    @property
+    def user_id(self) -> Optional[str]: ...
+    
+    @property
+    def is_admin(self) -> bool: ...
+
+
 @dataclass
-class CurrentUser:
-    user_id: Optional[str]
-    is_admin: bool
+class UnauthenticatedUser:
+    user_id: Optional[str] = None
+    is_admin: bool = False
 
 
 ALLOWED_TRANSITIONS = {
@@ -22,7 +30,7 @@ ALLOWED_TRANSITIONS = {
 }
 
 
-def can_modify_sla(ticket: TicketDB, current_user: CurrentUser) -> bool:
+def can_modify_sla(ticket: TicketDB, current_user: UserWithPermission) -> bool:
     if current_user.is_admin:
         return True
     
@@ -161,10 +169,10 @@ def update_ticket_status(
     db: Session,
     ticket_id: int,
     payload: TicketUpdate,
-    current_user: Optional[CurrentUser] = None,
+    current_user: Optional[UserWithPermission] = None,
 ) -> Ticket:
     if current_user is None:
-        current_user = CurrentUser(user_id=None, is_admin=False)
+        current_user = UnauthenticatedUser()
     
     ticket = get_ticket_db(db, ticket_id)
 
