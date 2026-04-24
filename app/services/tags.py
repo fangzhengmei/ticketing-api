@@ -1,10 +1,19 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func, select, text
 from fastapi import HTTPException
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
+from dataclasses import dataclass
 
 from app.db_models import TagDB, TicketDB, ticket_tags
-from app.models import TagCreate, TagUpdate, TagUsageResponse
+from app.models import TagCreate, TagUpdate, TagUsageResponse, Tag
+
+
+@dataclass
+class TagMergeResult:
+    target_tag: TagDB
+    migrated_ticket_count: int
+    deleted_tag_count: int
+    deleted_tag_names: List[str]
 
 
 def list_tags(
@@ -146,3 +155,84 @@ def get_or_create_tag_by_name(db: Session, name: str, color: Optional[str] = Non
     db.commit()
     db.refresh(tag)
     return tag
+
+
+def merge_tags(
+    db: Session,
+    target_tag_id: int,
+    source_tag_ids: List[int],
+) -> TagMergeResult:
+    if not source_tag_ids:
+        raise HTTPException(
+            status_code=422,
+            detail="source_tag_ids cannot be empty"
+        )
+    
+    unique_source_ids = list(set(source_tag_ids))
+    
+    if target_tag_id in unique_source_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="target_tag_id cannot be in source_tag_ids"
+        )
+    
+    target_tag = get_tag(db, target_tag_id)
+    
+    source_tags = db.query(TagDB).filter(TagDB.id.in_(unique_source_ids)).all()
+    
+    if len(source_tags) != len(unique_source_ids):
+        found_ids = {tag.id for tag in source_tags}
+        missing_ids = [tid for tid in unique_source_ids if tid not in found_ids]
+        raise HTTPException(
+            status_code=404,
+            detail=f"Source tags not found: {missing_ids}"
+        )
+    
+    total_migrated = 0
+    deleted_names = []
+    
+    for source_tag in source_tags:
+        ticket_ids_with_source = db.query(ticket_tags.c.ticket_id).filter(
+            ticket_tags.c.tag_id == source_tag.id
+        ).all()
+        ticket_ids_with_source = {row[0] for row in ticket_ids_with_source}
+        
+        if not ticket_ids_with_source:
+            deleted_names.append(source_tag.name)
+            continue
+        
+        ticket_ids_with_target = db.query(ticket_tags.c.ticket_id).filter(
+            ticket_tags.c.tag_id == target_tag_id
+        ).all()
+        ticket_ids_with_target = {row[0] for row in ticket_ids_with_target}
+        
+        ticket_ids_to_migrate = ticket_ids_with_source - ticket_ids_with_target
+        
+        if ticket_ids_to_migrate:
+            from sqlalchemy import insert
+            new_relations = [
+                {"ticket_id": tid, "tag_id": target_tag_id}
+                for tid in ticket_ids_to_migrate
+            ]
+            db.execute(insert(ticket_tags).values(new_relations))
+            
+            total_migrated += len(ticket_ids_to_migrate)
+        
+        db.query(ticket_tags).filter(
+            ticket_tags.c.tag_id == source_tag.id
+        ).delete(synchronize_session=False)
+        
+        deleted_names.append(source_tag.name)
+    
+    for source_tag in source_tags:
+        db.delete(source_tag)
+    
+    db.commit()
+    db.refresh(target_tag)
+    
+    return TagMergeResult(
+        target_tag=target_tag,
+        migrated_ticket_count=total_migrated,
+        deleted_tag_count=len(source_tags),
+        deleted_tag_names=deleted_names,
+    )

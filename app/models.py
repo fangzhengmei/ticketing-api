@@ -52,6 +52,20 @@ class TagUsageResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class TagMergeRequest(BaseModel):
+    target_tag_id: int = Field(..., ge=1)
+    source_tag_ids: list[int] = Field(..., min_length=1)
+
+
+class TagMergeResponse(BaseModel):
+    target_tag: Tag
+    migrated_ticket_count: int
+    deleted_tag_count: int
+    deleted_tag_names: list[str]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class TicketCreate(BaseModel):
     title: str
     status: TicketStatus = TicketStatus.open

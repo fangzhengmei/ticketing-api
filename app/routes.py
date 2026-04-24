@@ -7,7 +7,8 @@ from app.database import get_db
 from app.models import (
     Ticket, TicketCreate, TicketUpdate, MessageResponse,
     TicketListResponse, TicketStatus,
-    Tag, TagCreate, TagUpdate, TagListResponse, TagUsageResponse
+    Tag, TagCreate, TagUpdate, TagListResponse, TagUsageResponse,
+    TagMergeRequest, TagMergeResponse
 )
 
 from app.services import tickets as tickets_service
@@ -69,6 +70,21 @@ def update_tag(tag_id: int, payload: TagUpdate, db: Session = Depends(get_db)):
 def delete_tag(tag_id: int, db: Session = Depends(get_db)):
     tags_service.delete_tag(db=db, tag_id=tag_id)
     return None
+
+
+@router.post("/tags/merge", response_model=TagMergeResponse)
+def merge_tags(payload: TagMergeRequest, db: Session = Depends(get_db)):
+    result = tags_service.merge_tags(
+        db=db,
+        target_tag_id=payload.target_tag_id,
+        source_tag_ids=payload.source_tag_ids,
+    )
+    return TagMergeResponse(
+        target_tag=Tag.model_validate(result.target_tag),
+        migrated_ticket_count=result.migrated_ticket_count,
+        deleted_tag_count=result.deleted_tag_count,
+        deleted_tag_names=result.deleted_tag_names,
+    )
 
 
 @router.get("/tickets", response_model=TicketListResponse)

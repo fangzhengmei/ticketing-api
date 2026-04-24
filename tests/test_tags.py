@@ -390,3 +390,151 @@ class TestCascadeDelete:
             if item["name"] == "Bug":
                 assert item["ticket_count"] == 0
                 break
+
+
+class TestTagMerge:
+    def test_merge_tags_basic(self, client):
+        target = client.post("/tags", json={"name": "Bug", "color": "#ef4444"}).json()
+        source1 = client.post("/tags", json={"name": "bug", "color": "#ff0000"}).json()
+        source2 = client.post("/tags", json={"name": "BUG", "color": "#cc0000"}).json()
+        
+        client.post("/tickets", json={"title": "T1", "status": "open", "tag_ids": [source1["id"]]})
+        client.post("/tickets", json={"title": "T2", "status": "open", "tag_ids": [source2["id"]]})
+        client.post("/tickets", json={"title": "T3", "status": "open", "tag_ids": [target["id"]]})
+        
+        response = client.post(
+            "/tags/merge",
+            json={
+                "target_tag_id": target["id"],
+                "source_tag_ids": [source1["id"], source2["id"]]
+            },
+        )
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert data["target_tag"]["id"] == target["id"]
+        assert data["target_tag"]["name"] == "Bug"
+        assert data["migrated_ticket_count"] == 2
+        assert data["deleted_tag_count"] == 2
+        assert "bug" in data["deleted_tag_names"]
+        assert "BUG" in data["deleted_tag_names"]
+        
+        assert client.get(f"/tags/{source1['id']}").status_code == 404
+        assert client.get(f"/tags/{source2['id']}").status_code == 404
+        
+        usage = client.get("/tags/usage").json()
+        for item in usage:
+            if item["name"] == "Bug":
+                assert item["ticket_count"] == 3
+                break
+
+    def test_merge_tags_idempotent(self, client):
+        target = client.post("/tags", json={"name": "Bug"}).json()
+        source = client.post("/tags", json={"name": "bug"}).json()
+        
+        ticket = client.post(
+            "/tickets",
+            json={"title": "T1", "status": "open", "tag_ids": [target["id"], source["id"]]}
+        ).json()
+        
+        response = client.post(
+            "/tags/merge",
+            json={
+                "target_tag_id": target["id"],
+                "source_tag_ids": [source["id"]]
+            },
+        )
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert data["migrated_ticket_count"] == 0
+        
+        ticket_updated = client.get(f"/tickets/{ticket['id']}").json()
+        assert len(ticket_updated["tags"]) == 1
+        assert ticket_updated["tags"][0]["name"] == "Bug"
+
+    def test_merge_tags_empty_source_returns_422(self, client):
+        target = client.post("/tags", json={"name": "Bug"}).json()
+        
+        response = client.post(
+            "/tags/merge",
+            json={
+                "target_tag_id": target["id"],
+                "source_tag_ids": []
+            },
+        )
+        assert response.status_code == 422
+
+    def test_merge_tags_target_in_source_returns_400(self, client):
+        target = client.post("/tags", json={"name": "Bug"}).json()
+        source = client.post("/tags", json={"name": "bug"}).json()
+        
+        response = client.post(
+            "/tags/merge",
+            json={
+                "target_tag_id": target["id"],
+                "source_tag_ids": [target["id"], source["id"]]
+            },
+        )
+        assert response.status_code == 400
+        assert "target_tag_id cannot be in source_tag_ids" in response.json()["detail"]
+
+    def test_merge_tags_source_not_found_returns_404(self, client):
+        target = client.post("/tags", json={"name": "Bug"}).json()
+        
+        response = client.post(
+            "/tags/merge",
+            json={
+                "target_tag_id": target["id"],
+                "source_tag_ids": [99999]
+            },
+        )
+        assert response.status_code == 404
+        assert "Source tags not found" in response.json()["detail"]
+
+    def test_merge_tags_target_not_found_returns_404(self, client):
+        source = client.post("/tags", json={"name": "bug"}).json()
+        
+        response = client.post(
+            "/tags/merge",
+            json={
+                "target_tag_id": 99999,
+                "source_tag_ids": [source["id"]]
+            },
+        )
+        assert response.status_code == 404
+        assert "Tag not found" in response.json()["detail"]
+
+    def test_merge_tags_with_duplicates_in_source(self, client):
+        target = client.post("/tags", json={"name": "Bug"}).json()
+        source = client.post("/tags", json={"name": "bug"}).json()
+        
+        client.post("/tickets", json={"title": "T1", "status": "open", "tag_ids": [source["id"]]})
+        
+        response = client.post(
+            "/tags/merge",
+            json={
+                "target_tag_id": target["id"],
+                "source_tag_ids": [source["id"], source["id"], source["id"]]
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["deleted_tag_count"] == 1
+
+    def test_merge_unused_tags(self, client):
+        target = client.post("/tags", json={"name": "Bug"}).json()
+        source1 = client.post("/tags", json={"name": "bug"}).json()
+        source2 = client.post("/tags", json={"name": "BUG"}).json()
+        
+        response = client.post(
+            "/tags/merge",
+            json={
+                "target_tag_id": target["id"],
+                "source_tag_ids": [source1["id"], source2["id"]]
+            },
+        )
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert data["migrated_ticket_count"] == 0
+        assert data["deleted_tag_count"] == 2
