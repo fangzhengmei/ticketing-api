@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, select, text
 from fastapi import HTTPException
 from typing import Optional, List, Dict, Any
+from datetime import datetime
 from dataclasses import dataclass
 
 from app.db_models import TagDB, TicketDB, ticket_tags, TagMergeHistoryDB
@@ -355,11 +356,19 @@ def list_tag_merge_history(
     limit: int,
     offset: int,
     target_tag_id: Optional[int] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
 ) -> dict:
     query = db.query(TagMergeHistoryDB)
     
     if target_tag_id:
         query = query.filter(TagMergeHistoryDB.target_tag_id == target_tag_id)
+    
+    if start_date:
+        query = query.filter(TagMergeHistoryDB.created_at >= start_date)
+    
+    if end_date:
+        query = query.filter(TagMergeHistoryDB.created_at <= end_date)
     
     total = query.count()
     
@@ -387,3 +396,36 @@ def get_tag_merge_history(
     if history is None:
         raise HTTPException(status_code=404, detail="Merge history not found")
     return history
+
+
+@dataclass
+class TagMergeStats:
+    total_merges: int
+    total_migrated_tickets: int
+    total_deleted_tags: int
+
+
+def get_tag_merge_stats(
+    db: Session,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+) -> TagMergeStats:
+    query = db.query(
+        func.count(TagMergeHistoryDB.id).label("total_merges"),
+        func.coalesce(func.sum(TagMergeHistoryDB.migrated_ticket_count), 0).label("total_migrated_tickets"),
+        func.coalesce(func.sum(TagMergeHistoryDB.deleted_tag_count), 0).label("total_deleted_tags"),
+    )
+    
+    if start_date:
+        query = query.filter(TagMergeHistoryDB.created_at >= start_date)
+    
+    if end_date:
+        query = query.filter(TagMergeHistoryDB.created_at <= end_date)
+    
+    result = query.one()
+    
+    return TagMergeStats(
+        total_merges=result.total_merges or 0,
+        total_migrated_tickets=result.total_migrated_tickets or 0,
+        total_deleted_tags=result.total_deleted_tags or 0,
+    )

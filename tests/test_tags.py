@@ -883,3 +883,51 @@ class TestTagMergeHistory:
         assert history_item["source_tags"][0]["id"] == source["id"]
         assert history_item["source_tags"][0]["name"] == "bug"
         assert history_item["source_tags"][0]["color"] == "#ff0000"
+
+
+class TestTagMergeStats:
+    def test_stats_empty(self, client):
+        response = client.get("/tags/merge/stats")
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert data["total_merges"] == 0
+        assert data["total_migrated_tickets"] == 0
+        assert data["total_deleted_tags"] == 0
+
+    def test_stats_basic(self, client):
+        target1 = client.post("/tags", json={"name": "Bug"}).json()
+        source1 = client.post("/tags", json={"name": "bug"}).json()
+        source2 = client.post("/tags", json={"name": "BUG"}).json()
+        
+        client.post("/tickets", json={"title": "T1", "status": "open", "tag_ids": [source1["id"]]})
+        client.post("/tickets", json={"title": "T2", "status": "open", "tag_ids": [source2["id"]]})
+        
+        client.post(
+            "/tags/merge",
+            json={
+                "target_tag_id": target1["id"],
+                "source_tag_ids": [source1["id"], source2["id"]]
+            },
+        )
+        
+        target2 = client.post("/tags", json={"name": "Feature"}).json()
+        source3 = client.post("/tags", json={"name": "feature"}).json()
+        
+        client.post("/tickets", json={"title": "T3", "status": "open", "tag_ids": [source3["id"]]})
+        
+        client.post(
+            "/tags/merge",
+            json={
+                "target_tag_id": target2["id"],
+                "source_tag_ids": [source3["id"]]
+            },
+        )
+        
+        response = client.get("/tags/merge/stats")
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert data["total_merges"] == 2
+        assert data["total_migrated_tickets"] == 3
+        assert data["total_deleted_tags"] == 3

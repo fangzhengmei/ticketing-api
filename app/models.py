@@ -117,6 +117,14 @@ class TagMergeHistoryListResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class TagMergeStatsResponse(BaseModel):
+    total_merges: int
+    total_migrated_tickets: int
+    total_deleted_tags: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class TicketCreate(BaseModel):
     title: str
     status: TicketStatus = TicketStatus.open

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Response, Body
 from typing import Optional, List
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -9,7 +10,8 @@ from app.models import (
     TicketListResponse, TicketStatus,
     Tag, TagCreate, TagUpdate, TagListResponse, TagUsageResponse,
     TagMergeRequest, TagMergeResponse, TagMergePreviewResponse, TagMergePreviewSource,
-    TagMergeHistory, TagMergeHistoryListResponse, TagMergeHistorySource
+    TagMergeHistory, TagMergeHistoryListResponse, TagMergeHistorySource,
+    TagMergeStatsResponse
 )
 
 from app.services import tickets as tickets_service
@@ -118,6 +120,8 @@ def list_tag_merge_history(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     target_tag_id: Optional[int] = Query(None, ge=1),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
     db: Session = Depends(get_db)
 ):
     result = tags_service.list_tag_merge_history(
@@ -125,6 +129,8 @@ def list_tag_merge_history(
         limit=limit,
         offset=offset,
         target_tag_id=target_tag_id,
+        start_date=start_date,
+        end_date=end_date,
     )
     
     items = []
@@ -153,6 +159,24 @@ def list_tag_merge_history(
         limit=result["limit"],
         offset=result["offset"],
         items=items,
+    )
+
+
+@router.get("/tags/merge/stats", response_model=TagMergeStatsResponse)
+def get_tag_merge_stats(
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    db: Session = Depends(get_db)
+):
+    result = tags_service.get_tag_merge_stats(
+        db=db,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    return TagMergeStatsResponse(
+        total_merges=result.total_merges,
+        total_migrated_tickets=result.total_migrated_tickets,
+        total_deleted_tags=result.total_deleted_tags,
     )
 
 
