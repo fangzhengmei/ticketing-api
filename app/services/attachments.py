@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 from typing import Optional, List
 from fastapi import HTTPException, UploadFile
@@ -12,6 +13,38 @@ def get_safe_filename(original_name: str) -> str:
     ext = os.path.splitext(original_name)[1] or ""
     safe_name = f"{uuid.uuid4().hex}{ext}"
     return safe_name
+
+
+def parse_filename(filename: str) -> tuple[str, str]:
+    name, ext = os.path.splitext(filename)
+    return name, ext
+
+
+def get_next_available_name(db: Session, ticket_id: int, original_name: str) -> str:
+    name, ext = parse_filename(original_name)
+    
+    existing = db.query(AttachmentDB).filter(
+        AttachmentDB.ticket_id == ticket_id,
+        AttachmentDB.original_name == original_name
+    ).first()
+    
+    if existing is None:
+        return original_name
+    
+    pattern = re.compile(rf"^{re.escape(name)} \((\d+)\){re.escape(ext)}$")
+    
+    existing_files = db.query(AttachmentDB).filter(
+        AttachmentDB.ticket_id == ticket_id,
+    ).all()
+    
+    max_num = 0
+    for att in existing_files:
+        match = pattern.match(att.original_name)
+        if match:
+            num = int(match.group(1))
+            max_num = max(max_num, num)
+    
+    return f"{name} ({max_num + 1}){ext}"
 
 
 def validate_file(file: UploadFile) -> None:
@@ -55,6 +88,9 @@ def upload_attachment(
     
     validate_file(file)
     
+    original_name = file.filename or "unknown"
+    display_name = get_next_available_name(db, ticket_id, original_name)
+    
     file.file.seek(0, 2)
     file_size = file.file.tell()
     file.file.seek(0)
@@ -68,7 +104,7 @@ def upload_attachment(
     if not os.path.exists(upload_dir):
         os.makedirs(upload_dir, exist_ok=True)
     
-    safe_filename = get_safe_filename(file.filename or "unknown")
+    safe_filename = get_safe_filename(original_name)
     file_path = os.path.join(upload_dir, safe_filename)
     
     with open(file_path, "wb") as f:
@@ -78,7 +114,7 @@ def upload_attachment(
     attachment = AttachmentDB(
         ticket_id=ticket_id,
         filename=safe_filename,
-        original_name=file.filename or "unknown",
+        original_name=display_name,
         content_type=file.content_type or "application/octet-stream",
         file_size=file_size,
         description=description

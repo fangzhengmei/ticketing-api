@@ -247,3 +247,56 @@ def test_upload_attachment_without_description(client: TestClient):
     assert response.status_code == 201
     data = response.json()
     assert data["description"] is None
+
+
+def test_upload_same_filename_renames(client: TestClient):
+    ticket_response = client.post("/tickets", json={"title": "Test ticket", "status": "open"})
+    ticket_id = ticket_response.json()["id"]
+
+    files = {"file": ("screenshot.png", create_test_image(), "image/png")}
+
+    first_response = client.post(f"/tickets/{ticket_id}/attachments", files=files)
+    assert first_response.status_code == 201
+    assert first_response.json()["original_name"] == "screenshot.png"
+
+    second_response = client.post(f"/tickets/{ticket_id}/attachments", files=files)
+    assert second_response.status_code == 201
+    assert second_response.json()["original_name"] == "screenshot (1).png"
+
+
+def test_upload_same_filename_multiple_times(client: TestClient):
+    ticket_response = client.post("/tickets", json={"title": "Test ticket", "status": "open"})
+    ticket_id = ticket_response.json()["id"]
+
+    files = {"file": ("report.pdf", b"pdf content", "application/pdf")}
+
+    for i in range(3):
+        response = client.post(f"/tickets/{ticket_id}/attachments", files=files)
+        assert response.status_code == 201
+        if i == 0:
+            assert response.json()["original_name"] == "report.pdf"
+        else:
+            assert response.json()["original_name"] == f"report ({i}).pdf"
+
+    list_response = client.get(f"/tickets/{ticket_id}/attachments")
+    assert list_response.status_code == 200
+    assert list_response.json()["total"] == 3
+
+
+def test_upload_same_filename_different_tickets_no_conflict(client: TestClient):
+    ticket1_response = client.post("/tickets", json={"title": "Ticket 1", "status": "open"})
+    ticket1_id = ticket1_response.json()["id"]
+
+    ticket2_response = client.post("/tickets", json={"title": "Ticket 2", "status": "open"})
+    ticket2_id = ticket2_response.json()["id"]
+
+    files = {"file": ("screenshot.png", create_test_image(), "image/png")}
+
+    t1_first = client.post(f"/tickets/{ticket1_id}/attachments", files=files)
+    assert t1_first.json()["original_name"] == "screenshot.png"
+
+    t2_first = client.post(f"/tickets/{ticket2_id}/attachments", files=files)
+    assert t2_first.json()["original_name"] == "screenshot.png"
+
+    t1_second = client.post(f"/tickets/{ticket1_id}/attachments", files=files)
+    assert t1_second.json()["original_name"] == "screenshot (1).png"
