@@ -1,6 +1,8 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 from enum import Enum
+from datetime import datetime
+
 
 class TicketStatus(str, Enum):
     open = "open"
@@ -8,19 +10,67 @@ class TicketStatus(str, Enum):
     resolved = "resolved"
 
 
+class TagCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=50)
+    color: str = Field(default="#3b82f6", pattern=r"^#[0-9a-fA-F]{6}$")
+    description: Optional[str] = Field(None, max_length=200)
+
+
+class TagUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=50)
+    color: Optional[str] = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
+    description: Optional[str] = Field(None, max_length=200)
+
+
+class Tag(BaseModel):
+    id: int
+    name: str
+    color: str
+    description: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TagListResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: list[Tag]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TagUsageResponse(BaseModel):
+    id: int
+    name: str
+    color: str
+    description: Optional[str]
+    ticket_count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class TicketCreate(BaseModel):
     title: str
     status: TicketStatus = TicketStatus.open
+    tag_ids: Optional[list[int]] = None
 
 
 class TicketUpdate(BaseModel):
     status: TicketStatus
+    title: Optional[str] = None
+    tag_ids: Optional[list[int]] = None
 
 
 class Ticket(BaseModel):
     id: int
     title: str
     status: TicketStatus
+    tags: list[Tag] = []
+    created_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -28,10 +78,11 @@ class Ticket(BaseModel):
 class MessageResponse(BaseModel):
     message: str
 
+
 class TicketListResponse(BaseModel):
     total: int
     limit: int
     offset: int
     items: list[Ticket]
 
-model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True)
