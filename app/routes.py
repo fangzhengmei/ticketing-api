@@ -41,14 +41,14 @@ def list_tickets(
     return tickets_service.list_tickets(db=db, limit=limit, offset=offset)
 
 
-@router.get("/tickets/{ticket_id}", response_model=Union[Ticket, TicketWithAttachments])
+@router.get("/tickets/{ticket_id}")
 def get_ticket(
     ticket_id: int,
     include_attachments: bool = Query(False, description="Include attachments in response"),
     db: Session = Depends(get_db)
 ):
+    ticket = tickets_service.get_ticket(db=db, ticket_id=ticket_id)
     if include_attachments:
-        ticket = tickets_service.get_ticket(db=db, ticket_id=ticket_id)
         attachments = attachments_service.list_attachments(db=db, ticket_id=ticket_id)
         return TicketWithAttachments(
             id=ticket.id,
@@ -56,7 +56,11 @@ def get_ticket(
             status=ticket.status,
             attachments=attachments
         )
-    return tickets_service.get_ticket(db=db, ticket_id=ticket_id)
+    return Ticket(
+        id=ticket.id,
+        title=ticket.title,
+        status=ticket.status
+    )
 
 
 @router.post("/tickets", response_model=Ticket, status_code=201)
