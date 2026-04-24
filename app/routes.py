@@ -1,12 +1,13 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
 
 from sqlalchemy.orm import Session
+from typing import Optional
 
 from app.database import get_db
 from app.db_models import TicketDB
 from app.models import Ticket, TicketCreate, TicketUpdate, MessageResponse
 from app.models import TicketListResponse
-from app.models import TicketStatus  # μαζί με τα άλλα imports
+from app.models import TicketStatus, SlaStatus
 
 from app.services import tickets as tickets_service
 
@@ -29,9 +30,17 @@ def health():
 def list_tickets(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    status: Optional[TicketStatus] = Query(None, description="按工单状态过滤"),
+    sla_status: Optional[SlaStatus] = Query(None, description="按SLA状态过滤"),
     db: Session = Depends(get_db)
 ):
-    return tickets_service.list_tickets(db=db, limit=limit, offset=offset)
+    return tickets_service.list_tickets(
+        db=db,
+        limit=limit,
+        offset=offset,
+        status=status,
+        sla_status=sla_status,
+    )
 
 
 @router.get("/tickets/{ticket_id}", response_model=Ticket)
@@ -45,7 +54,7 @@ def create_ticket(payload: TicketCreate, db: Session = Depends(get_db)):
 
 
 @router.patch("/tickets/{ticket_id}", response_model=Ticket)
-def update_ticket_status(ticket_id: int, payload: TicketUpdate, db: Session = Depends(get_db)):
+def update_ticket(ticket_id: int, payload: TicketUpdate, db: Session = Depends(get_db)):
     return tickets_service.update_ticket_status(db=db, ticket_id=ticket_id, payload=payload)
 
 
@@ -54,3 +63,7 @@ def delete_ticket(ticket_id: int, db: Session = Depends(get_db)):
     tickets_service.delete_ticket(db=db, ticket_id=ticket_id)
     return None
 
+
+@router.get("/sla/statistics")
+def get_sla_statistics(db: Session = Depends(get_db)):
+    return tickets_service.get_sla_statistics(db=db)
