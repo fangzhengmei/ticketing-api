@@ -8,7 +8,8 @@ from app.models import (
     Ticket, TicketCreate, TicketUpdate, MessageResponse,
     TicketListResponse, TicketStatus,
     Tag, TagCreate, TagUpdate, TagListResponse, TagUsageResponse,
-    TagMergeRequest, TagMergeResponse, TagMergePreviewResponse, TagMergePreviewSource
+    TagMergeRequest, TagMergeResponse, TagMergePreviewResponse, TagMergePreviewSource,
+    TagMergeHistory, TagMergeHistoryListResponse, TagMergeHistorySource
 )
 
 from app.services import tickets as tickets_service
@@ -109,6 +110,73 @@ def preview_merge_tags(payload: TagMergeRequest, db: Session = Depends(get_db)):
         ],
         tickets_to_migrate=result.tickets_to_migrate,
         total_tags_to_delete=result.total_tags_to_delete,
+    )
+
+
+@router.get("/tags/merge/history", response_model=TagMergeHistoryListResponse)
+def list_tag_merge_history(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    target_tag_id: Optional[int] = Query(None, ge=1),
+    db: Session = Depends(get_db)
+):
+    result = tags_service.list_tag_merge_history(
+        db=db,
+        limit=limit,
+        offset=offset,
+        target_tag_id=target_tag_id,
+    )
+    
+    items = []
+    for history in result["items"]:
+        items.append(TagMergeHistory(
+            id=history.id,
+            target_tag_id=history.target_tag_id,
+            target_tag_name=history.target_tag_name,
+            target_tag_color=history.target_tag_color,
+            source_tags=[
+                TagMergeHistorySource(
+                    id=s["id"],
+                    name=s["name"],
+                    color=s["color"],
+                    current_ticket_count=s["current_ticket_count"],
+                )
+                for s in history.source_tags
+            ],
+            migrated_ticket_count=history.migrated_ticket_count,
+            deleted_tag_count=history.deleted_tag_count,
+            created_at=history.created_at,
+        ))
+    
+    return TagMergeHistoryListResponse(
+        total=result["total"],
+        limit=result["limit"],
+        offset=result["offset"],
+        items=items,
+    )
+
+
+@router.get("/tags/merge/history/{history_id}", response_model=TagMergeHistory)
+def get_tag_merge_history(history_id: int, db: Session = Depends(get_db)):
+    history = tags_service.get_tag_merge_history(db=db, history_id=history_id)
+    
+    return TagMergeHistory(
+        id=history.id,
+        target_tag_id=history.target_tag_id,
+        target_tag_name=history.target_tag_name,
+        target_tag_color=history.target_tag_color,
+        source_tags=[
+            TagMergeHistorySource(
+                id=s["id"],
+                name=s["name"],
+                color=s["color"],
+                current_ticket_count=s["current_ticket_count"],
+            )
+            for s in history.source_tags
+        ],
+        migrated_ticket_count=history.migrated_ticket_count,
+        deleted_tag_count=history.deleted_tag_count,
+        created_at=history.created_at,
     )
 
 

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Table, ForeignKey, DateTime, func
+from sqlalchemy import Column, Integer, String, Table, ForeignKey, DateTime, func, JSON
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -35,3 +35,20 @@ class TicketDB(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     tags = relationship("TagDB", secondary=ticket_tags, back_populates="tickets")
+
+
+class TagMergeHistoryDB(Base):
+    __tablename__ = "tag_merge_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    
+    target_tag_id = Column(Integer, nullable=False)
+    target_tag_name = Column(String(50), nullable=False)
+    target_tag_color = Column(String(7), nullable=False)
+    
+    source_tags = Column(JSON, nullable=False)
+    
+    migrated_ticket_count = Column(Integer, nullable=False, default=0)
+    deleted_tag_count = Column(Integer, nullable=False, default=0)
+    
+    created_at = Column(DateTime, server_default=func.now())

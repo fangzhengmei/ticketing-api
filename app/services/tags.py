@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 
-from app.db_models import TagDB, TicketDB, ticket_tags
+from app.db_models import TagDB, TicketDB, ticket_tags, TagMergeHistoryDB
 from app.models import TagCreate, TagUpdate, TagUsageResponse, Tag
 
 
@@ -206,6 +206,18 @@ def merge_tags(
             detail=f"Source tags not found: {missing_ids}"
         )
     
+    source_tags_snapshot = []
+    for source_tag in source_tags:
+        ticket_count = db.query(ticket_tags.c.ticket_id).filter(
+            ticket_tags.c.tag_id == source_tag.id
+        ).count()
+        source_tags_snapshot.append({
+            "id": source_tag.id,
+            "name": source_tag.name,
+            "color": source_tag.color,
+            "current_ticket_count": ticket_count,
+        })
+    
     total_migrated = 0
     deleted_names = []
     
@@ -244,6 +256,16 @@ def merge_tags(
     
     for source_tag in source_tags:
         db.delete(source_tag)
+    
+    history = TagMergeHistoryDB(
+        target_tag_id=target_tag.id,
+        target_tag_name=target_tag.name,
+        target_tag_color=target_tag.color,
+        source_tags=source_tags_snapshot,
+        migrated_ticket_count=total_migrated,
+        deleted_tag_count=len(source_tags),
+    )
+    db.add(history)
     
     db.commit()
     db.refresh(target_tag)
@@ -326,3 +348,42 @@ def preview_merge_tags(
         tickets_to_migrate=total_tickets_to_migrate,
         total_tags_to_delete=len(source_tags),
     )
+
+
+def list_tag_merge_history(
+    db: Session,
+    limit: int,
+    offset: int,
+    target_tag_id: Optional[int] = None,
+) -> dict:
+    query = db.query(TagMergeHistoryDB)
+    
+    if target_tag_id:
+        query = query.filter(TagMergeHistoryDB.target_tag_id == target_tag_id)
+    
+    total = query.count()
+    
+    items = (
+        query
+        .order_by(TagMergeHistoryDB.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": items,
+    }
+
+
+def get_tag_merge_history(
+    db: Session,
+    history_id: int,
+) -> TagMergeHistoryDB:
+    history = db.query(TagMergeHistoryDB).filter(TagMergeHistoryDB.id == history_id).first()
+    if history is None:
+        raise HTTPException(status_code=404, detail="Merge history not found")
+    return history

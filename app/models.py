@@ -86,6 +86,37 @@ class TagMergePreviewResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class TagMergeHistorySource(BaseModel):
+    id: int
+    name: str
+    color: str
+    current_ticket_count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TagMergeHistory(BaseModel):
+    id: int
+    target_tag_id: int
+    target_tag_name: str
+    target_tag_color: str
+    source_tags: list[TagMergeHistorySource]
+    migrated_ticket_count: int
+    deleted_tag_count: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TagMergeHistoryListResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: list[TagMergeHistory]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class TicketCreate(BaseModel):
     title: str
     status: TicketStatus = TicketStatus.open

@@ -710,3 +710,176 @@ class TestTagMergePreview:
         )
         assert response.status_code == 200
         assert response.json()["total_tags_to_delete"] == 1
+
+
+class TestTagMergeHistory:
+    def test_merge_creates_history(self, client):
+        target = client.post("/tags", json={"name": "Bug", "color": "#ef4444"}).json()
+        source1 = client.post("/tags", json={"name": "bug", "color": "#ff0000"}).json()
+        source2 = client.post("/tags", json={"name": "BUG", "color": "#cc0000"}).json()
+        
+        client.post("/tickets", json={"title": "T1", "status": "open", "tag_ids": [source1["id"]]})
+        client.post("/tickets", json={"title": "T2", "status": "open", "tag_ids": [source2["id"]]})
+        
+        history_before = client.get("/tags/merge/history").json()
+        assert history_before["total"] == 0
+        
+        client.post(
+            "/tags/merge",
+            json={
+                "target_tag_id": target["id"],
+                "source_tag_ids": [source1["id"], source2["id"]]
+            },
+        )
+        
+        history_after = client.get("/tags/merge/history").json()
+        assert history_after["total"] == 1
+        assert len(history_after["items"]) == 1
+        
+        history_item = history_after["items"][0]
+        assert history_item["target_tag_id"] == target["id"]
+        assert history_item["target_tag_name"] == "Bug"
+        assert history_item["target_tag_color"] == "#ef4444"
+        assert history_item["migrated_ticket_count"] == 2
+        assert history_item["deleted_tag_count"] == 2
+        assert "created_at" in history_item
+        
+        source_names = {s["name"] for s in history_item["source_tags"]}
+        assert source_names == {"bug", "BUG"}
+        
+        for s in history_item["source_tags"]:
+            if s["name"] == "bug":
+                assert s["current_ticket_count"] == 1
+            elif s["name"] == "BUG":
+                assert s["current_ticket_count"] == 1
+
+    def test_list_history_pagination(self, client):
+        for i in range(3):
+            target = client.post("/tags", json={"name": f"Target{i}"}).json()
+            source = client.post("/tags", json={"name": f"Source{i}"}).json()
+            client.post(
+                "/tags/merge",
+                json={
+                    "target_tag_id": target["id"],
+                    "source_tag_ids": [source["id"]]
+                },
+            )
+        
+        response = client.get("/tags/merge/history?limit=2&offset=0")
+        assert response.status_code == 200
+        assert response.json()["total"] == 3
+        assert len(response.json()["items"]) == 2
+        assert response.json()["limit"] == 2
+        assert response.json()["offset"] == 0
+
+    def test_list_history_sorted_by_created_at_desc(self, client):
+        target1 = client.post("/tags", json={"name": "Target1"}).json()
+        source1 = client.post("/tags", json={"name": "Source1"}).json()
+        client.post(
+            "/tags/merge",
+            json={
+                "target_tag_id": target1["id"],
+                "source_tag_ids": [source1["id"]]
+            },
+        )
+        
+        target2 = client.post("/tags", json={"name": "Target2"}).json()
+        source2 = client.post("/tags", json={"name": "Source2"}).json()
+        client.post(
+            "/tags/merge",
+            json={
+                "target_tag_id": target2["id"],
+                "source_tag_ids": [source2["id"]]
+            },
+        )
+        
+        response = client.get("/tags/merge/history")
+        assert response.status_code == 200
+        assert len(response.json()["items"]) == 2
+        
+        first_created = response.json()["items"][0]["created_at"]
+        second_created = response.json()["items"][1]["created_at"]
+        assert first_created >= second_created
+
+    def test_list_history_filter_by_target_tag_id(self, client):
+        target1 = client.post("/tags", json={"name": "Bug"}).json()
+        source1 = client.post("/tags", json={"name": "bug"}).json()
+        
+        target2 = client.post("/tags", json={"name": "Feature"}).json()
+        source2 = client.post("/tags", json={"name": "feature"}).json()
+        
+        client.post(
+            "/tags/merge",
+            json={
+                "target_tag_id": target1["id"],
+                "source_tag_ids": [source1["id"]]
+            },
+        )
+        client.post(
+            "/tags/merge",
+            json={
+                "target_tag_id": target2["id"],
+                "source_tag_ids": [source2["id"]]
+            },
+        )
+        
+        response = client.get(f"/tags/merge/history?target_tag_id={target1['id']}")
+        assert response.status_code == 200
+        assert response.json()["total"] == 1
+        assert response.json()["items"][0]["target_tag_name"] == "Bug"
+
+    def test_get_history_by_id(self, client):
+        target = client.post("/tags", json={"name": "Bug", "color": "#ef4444"}).json()
+        source = client.post("/tags", json={"name": "bug", "color": "#ff0000"}).json()
+        
+        client.post("/tickets", json={"title": "T1", "status": "open", "tag_ids": [source["id"]]})
+        
+        client.post(
+            "/tags/merge",
+            json={
+                "target_tag_id": target["id"],
+                "source_tag_ids": [source["id"]]
+            },
+        )
+        
+        history_list = client.get("/tags/merge/history").json()
+        history_id = history_list["items"][0]["id"]
+        
+        response = client.get(f"/tags/merge/history/{history_id}")
+        assert response.status_code == 200
+        
+        history_item = response.json()
+        assert history_item["target_tag_id"] == target["id"]
+        assert history_item["target_tag_name"] == "Bug"
+        assert history_item["migrated_ticket_count"] == 1
+        assert len(history_item["source_tags"]) == 1
+        assert history_item["source_tags"][0]["name"] == "bug"
+        assert history_item["source_tags"][0]["current_ticket_count"] == 1
+
+    def test_get_history_not_found_returns_404(self, client):
+        response = client.get("/tags/merge/history/99999")
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Merge history not found"
+
+    def test_history_snapshot_preserved_after_source_deleted(self, client):
+        target = client.post("/tags", json={"name": "Bug", "color": "#ef4444"}).json()
+        source = client.post("/tags", json={"name": "bug", "color": "#ff0000"}).json()
+        
+        client.post("/tickets", json={"title": "T1", "status": "open", "tag_ids": [source["id"]]})
+        
+        client.post(
+            "/tags/merge",
+            json={
+                "target_tag_id": target["id"],
+                "source_tag_ids": [source["id"]]
+            },
+        )
+        
+        assert client.get(f"/tags/{source['id']}").status_code == 404
+        
+        history_list = client.get("/tags/merge/history").json()
+        history_item = history_list["items"][0]
+        
+        assert history_item["source_tags"][0]["id"] == source["id"]
+        assert history_item["source_tags"][0]["name"] == "bug"
+        assert history_item["source_tags"][0]["color"] == "#ff0000"
