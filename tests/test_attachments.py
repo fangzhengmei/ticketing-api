@@ -222,16 +222,12 @@ def test_get_ticket_without_attachments(client: TestClient):
 
 
 def test_delete_ticket_cascades_attachments(client: TestClient):
-    from app.services.attachments import UPLOAD_DIR
-
     ticket_response = client.post("/tickets", json={"title": "Test ticket", "status": "open"})
     ticket_id = ticket_response.json()["id"]
 
     files = {"file": ("screenshot.png", create_test_image(), "image/png")}
     upload_response = client.post(f"/tickets/{ticket_id}/attachments", files=files)
-    attachment_data = upload_response.json()
-
-    stored_filename = attachment_data["original_name"]
+    assert upload_response.status_code == 201
 
     delete_response = client.delete(f"/tickets/{ticket_id}")
     assert delete_response.status_code == 204

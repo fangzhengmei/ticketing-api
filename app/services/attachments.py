@@ -1,12 +1,10 @@
 import os
 import uuid
-from typing import Optional, List, BinaryIO
-from datetime import datetime
+from typing import Optional, List
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.db_models import AttachmentDB, TicketDB
-from app.models import Attachment
 
 
 UPLOAD_DIR = "./uploads"
@@ -46,13 +44,6 @@ def validate_file(file: UploadFile) -> None:
             status_code=400,
             detail=f"Unsupported file type: {file.content_type}. Allowed types: {', '.join(sorted(ALLOWED_CONTENT_TYPES))}"
         )
-
-
-def get_file_size(file: BinaryIO) -> int:
-    file.seek(0, 2)
-    size = file.tell()
-    file.seek(0)
-    return size
 
 
 def get_ticket(db: Session, ticket_id: int) -> TicketDB:

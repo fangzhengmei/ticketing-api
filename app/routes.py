@@ -1,5 +1,5 @@
 import os
-from typing import Optional
+from typing import Optional, Union
 from fastapi import APIRouter, HTTPException, Depends, Query, Response, UploadFile, File, Form, Body
 from fastapi.responses import FileResponse
 
@@ -41,7 +41,7 @@ def list_tickets(
     return tickets_service.list_tickets(db=db, limit=limit, offset=offset)
 
 
-@router.get("/tickets/{ticket_id}", response_model=Ticket)
+@router.get("/tickets/{ticket_id}", response_model=Union[Ticket, TicketWithAttachments])
 def get_ticket(
     ticket_id: int,
     include_attachments: bool = Query(False, description="Include attachments in response"),
