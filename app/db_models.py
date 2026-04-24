@@ -13,3 +13,4 @@ class TicketDB(Base):
     sla_deadline = Column(DateTime, nullable=True)
     sla_breached = Column(Boolean, nullable=False, default=False)
     resolved_at = Column(DateTime, nullable=True)
+    created_by = Column(String, nullable=True)

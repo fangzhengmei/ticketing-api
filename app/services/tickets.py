@@ -2,10 +2,17 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from datetime import datetime, timedelta
 from typing import Optional
+from dataclasses import dataclass
 
 from app.db_models import TicketDB
 from app.models import TicketCreate, TicketUpdate, TicketStatus, SlaStatus, Ticket
-from app.config import get_settings
+from app.config import get_sla_warning_threshold_hours
+
+
+@dataclass
+class CurrentUser:
+    user_id: Optional[str]
+    is_admin: bool
 
 
 ALLOWED_TRANSITIONS = {
@@ -15,13 +22,21 @@ ALLOWED_TRANSITIONS = {
 }
 
 
-def get_warning_threshold_hours() -> int:
-    settings = get_settings()
-    return settings.SLA_WARNING_THRESHOLD_HOURS
+def can_modify_sla(ticket: TicketDB, current_user: CurrentUser) -> bool:
+    if current_user.is_admin:
+        return True
+    
+    if ticket.created_by is None:
+        return True
+    
+    if current_user.user_id and ticket.created_by == current_user.user_id:
+        return True
+    
+    return False
 
 
 def calculate_sla_status(ticket: TicketDB) -> SlaStatus:
-    warning_threshold_hours = get_warning_threshold_hours()
+    warning_threshold_hours = get_sla_warning_threshold_hours()
     
     if ticket.sla_deadline is None:
         return SlaStatus.not_set
@@ -69,6 +84,7 @@ def ticket_db_to_model(ticket: TicketDB) -> Ticket:
         sla_deadline=ticket.sla_deadline,
         sla_breached=ticket.sla_breached,
         resolved_at=ticket.resolved_at,
+        created_by=ticket.created_by,
         sla_status=sla_status,
     )
 
@@ -124,11 +140,16 @@ def get_ticket_db(db: Session, ticket_id: int) -> TicketDB:
     return ticket
 
 
-def create_ticket(db: Session, payload: TicketCreate) -> Ticket:
+def create_ticket(
+    db: Session,
+    payload: TicketCreate,
+    created_by: Optional[str] = None,
+) -> Ticket:
     ticket = TicketDB(
         title=payload.title,
         status=payload.status.value,
         sla_deadline=payload.sla_deadline,
+        created_by=created_by,
     )
     db.add(ticket)
     db.commit()
@@ -136,11 +157,27 @@ def create_ticket(db: Session, payload: TicketCreate) -> Ticket:
     return ticket_db_to_model(ticket)
 
 
-def update_ticket_status(db: Session, ticket_id: int, payload: TicketUpdate) -> Ticket:
+def update_ticket_status(
+    db: Session,
+    ticket_id: int,
+    payload: TicketUpdate,
+    current_user: Optional[CurrentUser] = None,
+) -> Ticket:
+    if current_user is None:
+        current_user = CurrentUser(user_id=None, is_admin=False)
+    
     ticket = get_ticket_db(db, ticket_id)
 
     current = TicketStatus(ticket.status)
     new = payload.status
+
+    sla_modified = payload.sla_deadline is not None and payload.sla_deadline != ticket.sla_deadline
+    
+    if sla_modified and not can_modify_sla(ticket, current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorized to modify SLA deadline. Only the creator or admin can modify SLA.",
+        )
 
     if new == current:
         if payload.sla_deadline is not None:
@@ -187,7 +224,7 @@ def get_sla_statistics(db: Session) -> dict:
         "warning": 0,
         "breached": 0,
         "not_set": 0,
-        "warning_threshold_hours": get_warning_threshold_hours(),
+        "warning_threshold_hours": get_sla_warning_threshold_hours(),
     }
     
     for ticket in all_tickets:

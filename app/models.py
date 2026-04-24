@@ -74,6 +74,7 @@ class Ticket(BaseModel):
     sla_deadline: Optional[datetime]
     sla_breached: bool
     resolved_at: Optional[datetime]
+    created_by: Optional[str]
     sla_status: SlaStatus = SlaStatus.not_set
 
     model_config = ConfigDict(from_attributes=True)

@@ -1,5 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Query, Response
-
+from fastapi import APIRouter, HTTPException, Depends, Query, Header
 from sqlalchemy.orm import Session
 from typing import Optional
 
@@ -8,6 +7,7 @@ from app.db_models import TicketDB
 from app.models import Ticket, TicketCreate, TicketUpdate, MessageResponse
 from app.models import TicketListResponse
 from app.models import TicketStatus, SlaStatus
+from app.services.tickets import CurrentUser
 
 from app.services import tickets as tickets_service
 
@@ -16,6 +16,16 @@ ALLOWED_TRANSITIONS = {
     TicketStatus.in_progress: {TicketStatus.resolved},
     TicketStatus.resolved: set(),
 }
+
+
+def get_current_user(
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    x_is_admin: Optional[str] = Header(None, alias="X-Is-Admin"),
+) -> CurrentUser:
+    is_admin = False
+    if x_is_admin and x_is_admin.lower() in ("true", "1", "yes"):
+        is_admin = True
+    return CurrentUser(user_id=x_user_id, is_admin=is_admin)
 
 
 router = APIRouter()
@@ -49,13 +59,31 @@ def get_ticket(ticket_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/tickets", response_model=Ticket, status_code=201)
-def create_ticket(payload: TicketCreate, db: Session = Depends(get_db)):
-    return tickets_service.create_ticket(db=db, payload=payload)
+def create_ticket(
+    payload: TicketCreate,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    return tickets_service.create_ticket(
+        db=db,
+        payload=payload,
+        created_by=current_user.user_id,
+    )
 
 
 @router.patch("/tickets/{ticket_id}", response_model=Ticket)
-def update_ticket(ticket_id: int, payload: TicketUpdate, db: Session = Depends(get_db)):
-    return tickets_service.update_ticket_status(db=db, ticket_id=ticket_id, payload=payload)
+def update_ticket(
+    ticket_id: int,
+    payload: TicketUpdate,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    return tickets_service.update_ticket_status(
+        db=db,
+        ticket_id=ticket_id,
+        payload=payload,
+        current_user=current_user,
+    )
 
 
 @router.delete("/tickets/{ticket_id}", status_code=204)
