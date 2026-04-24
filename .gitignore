@@ -3,3 +3,10 @@ __pycache__/
 *.pyc
 .pytest_cache/
 tickets.db
+
+# 调试文件
+run_tests.py
+test_output.txt
+
+# 环境变量配置（实际使用的，示例文件 .env.example 需要提交）
+.env
