@@ -5,31 +5,7 @@ from fastapi import HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.db_models import AttachmentDB, TicketDB
-
-
-UPLOAD_DIR = "./uploads"
-MAX_FILE_SIZE = 10 * 1024 * 1024
-ALLOWED_CONTENT_TYPES = {
-    "image/jpeg",
-    "image/png",
-    "image/gif",
-    "image/webp",
-    "application/pdf",
-    "text/plain",
-    "text/csv",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.ms-excel",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/zip",
-    "application/x-gzip",
-    "application/x-rar-compressed",
-}
-
-
-def ensure_upload_dir():
-    if not os.path.exists(UPLOAD_DIR):
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
+from app.config import get_settings
 
 
 def get_safe_filename(original_name: str) -> str:
@@ -39,10 +15,12 @@ def get_safe_filename(original_name: str) -> str:
 
 
 def validate_file(file: UploadFile) -> None:
-    if file.content_type not in ALLOWED_CONTENT_TYPES:
+    settings = get_settings()
+    allowed_types = settings.effective_allowed_content_types
+    if file.content_type not in allowed_types:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type: {file.content_type}. Allowed types: {', '.join(sorted(ALLOWED_CONTENT_TYPES))}"
+            detail=f"Unsupported file type: {file.content_type}. Allowed types: {', '.join(sorted(allowed_types))}"
         )
 
 
@@ -69,6 +47,10 @@ def upload_attachment(
     file: UploadFile,
     description: Optional[str] = None
 ) -> AttachmentDB:
+    settings = get_settings()
+    upload_dir = settings.upload_dir
+    max_file_size = settings.max_file_size
+    
     ticket = get_ticket(db, ticket_id)
     
     validate_file(file)
@@ -77,16 +59,17 @@ def upload_attachment(
     file_size = file.file.tell()
     file.file.seek(0)
     
-    if file_size > MAX_FILE_SIZE:
+    if file_size > max_file_size:
         raise HTTPException(
             status_code=400,
-            detail=f"File too large. Maximum size is {MAX_FILE_SIZE // 1024 // 1024}MB"
+            detail=f"File too large. Maximum size is {max_file_size // 1024 // 1024}MB"
         )
     
-    ensure_upload_dir()
+    if not os.path.exists(upload_dir):
+        os.makedirs(upload_dir, exist_ok=True)
     
     safe_filename = get_safe_filename(file.filename or "unknown")
-    file_path = os.path.join(UPLOAD_DIR, safe_filename)
+    file_path = os.path.join(upload_dir, safe_filename)
     
     with open(file_path, "wb") as f:
         content = file.file.read()
@@ -119,7 +102,8 @@ def list_attachments(db: Session, ticket_id: int) -> List[AttachmentDB]:
 
 
 def get_attachment_file_path(attachment: AttachmentDB) -> str:
-    return os.path.join(UPLOAD_DIR, attachment.filename)
+    settings = get_settings()
+    return os.path.join(settings.upload_dir, attachment.filename)
 
 
 def delete_attachment(db: Session, ticket_id: int, attachment_id: int) -> None:

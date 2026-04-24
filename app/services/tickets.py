@@ -4,7 +4,7 @@ from fastapi import HTTPException
 
 from app.db_models import TicketDB
 from app.models import TicketCreate, TicketUpdate, TicketStatus
-from app.services.attachments import UPLOAD_DIR
+from app.config import get_settings
 
 
 ALLOWED_TRANSITIONS = {
@@ -67,10 +67,12 @@ def update_ticket_status(db: Session, ticket_id: int, payload: TicketUpdate) -> 
 
 
 def delete_ticket(db: Session, ticket_id: int) -> None:
+    settings = get_settings()
+    upload_dir = settings.upload_dir
     ticket = get_ticket(db, ticket_id)
     
     for attachment in ticket.attachments:
-        file_path = os.path.join(UPLOAD_DIR, attachment.filename)
+        file_path = os.path.join(upload_dir, attachment.filename)
         if os.path.exists(file_path):
             os.remove(file_path)
     
