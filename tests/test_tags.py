@@ -538,3 +538,175 @@ class TestTagMerge:
         data = response.json()
         assert data["migrated_ticket_count"] == 0
         assert data["deleted_tag_count"] == 2
+
+
+class TestTagMergePreview:
+    def test_preview_merge_basic(self, client):
+        target = client.post("/tags", json={"name": "Bug", "color": "#ef4444"}).json()
+        source1 = client.post("/tags", json={"name": "bug", "color": "#ff0000"}).json()
+        source2 = client.post("/tags", json={"name": "BUG", "color": "#cc0000"}).json()
+        
+        client.post("/tickets", json={"title": "T1", "status": "open", "tag_ids": [source1["id"]]})
+        client.post("/tickets", json={"title": "T2", "status": "open", "tag_ids": [source2["id"]]})
+        client.post("/tickets", json={"title": "T3", "status": "open", "tag_ids": [target["id"]]})
+        
+        response = client.post(
+            "/tags/merge/preview",
+            json={
+                "target_tag_id": target["id"],
+                "source_tag_ids": [source1["id"], source2["id"]]
+            },
+        )
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert data["target_tag"]["id"] == target["id"]
+        assert data["target_tag"]["name"] == "Bug"
+        assert data["target_current_ticket_count"] == 1
+        assert data["target_after_merge_ticket_count"] == 3
+        assert data["tickets_to_migrate"] == 2
+        assert data["total_tags_to_delete"] == 2
+        
+        assert len(data["sources_to_delete"]) == 2
+        source_names = {s["name"] for s in data["sources_to_delete"]}
+        assert source_names == {"bug", "BUG"}
+        
+        for s in data["sources_to_delete"]:
+            if s["name"] == "bug":
+                assert s["current_ticket_count"] == 1
+            elif s["name"] == "BUG":
+                assert s["current_ticket_count"] == 1
+
+    def test_preview_merge_idempotent(self, client):
+        target = client.post("/tags", json={"name": "Bug"}).json()
+        source = client.post("/tags", json={"name": "bug"}).json()
+        
+        client.post(
+            "/tickets",
+            json={"title": "T1", "status": "open", "tag_ids": [target["id"], source["id"]]}
+        )
+        
+        response = client.post(
+            "/tags/merge/preview",
+            json={
+                "target_tag_id": target["id"],
+                "source_tag_ids": [source["id"]]
+            },
+        )
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert data["tickets_to_migrate"] == 0
+        assert data["target_current_ticket_count"] == 1
+        assert data["target_after_merge_ticket_count"] == 1
+
+    def test_preview_merge_does_not_modify_data(self, client):
+        target = client.post("/tags", json={"name": "Bug"}).json()
+        source = client.post("/tags", json={"name": "bug"}).json()
+        
+        client.post("/tickets", json={"title": "T1", "status": "open", "tag_ids": [source["id"]]})
+        
+        client.post(
+            "/tags/merge/preview",
+            json={
+                "target_tag_id": target["id"],
+                "source_tag_ids": [source["id"]]
+            },
+        )
+        
+        assert client.get(f"/tags/{source['id']}").status_code == 200
+        
+        ticket_response = client.get("/tickets")
+        assert ticket_response.status_code == 200
+        ticket = ticket_response.json()["items"][0]
+        ticket_tags = {t["name"] for t in ticket["tags"]}
+        assert "bug" in ticket_tags
+        assert "Bug" not in ticket_tags
+
+    def test_preview_merge_empty_source_returns_422(self, client):
+        target = client.post("/tags", json={"name": "Bug"}).json()
+        
+        response = client.post(
+            "/tags/merge/preview",
+            json={
+                "target_tag_id": target["id"],
+                "source_tag_ids": []
+            },
+        )
+        assert response.status_code == 422
+
+    def test_preview_merge_target_in_source_returns_400(self, client):
+        target = client.post("/tags", json={"name": "Bug"}).json()
+        source = client.post("/tags", json={"name": "bug"}).json()
+        
+        response = client.post(
+            "/tags/merge/preview",
+            json={
+                "target_tag_id": target["id"],
+                "source_tag_ids": [target["id"], source["id"]]
+            },
+        )
+        assert response.status_code == 400
+        assert "target_tag_id cannot be in source_tag_ids" in response.json()["detail"]
+
+    def test_preview_merge_source_not_found_returns_404(self, client):
+        target = client.post("/tags", json={"name": "Bug"}).json()
+        
+        response = client.post(
+            "/tags/merge/preview",
+            json={
+                "target_tag_id": target["id"],
+                "source_tag_ids": [99999]
+            },
+        )
+        assert response.status_code == 404
+        assert "Source tags not found" in response.json()["detail"]
+
+    def test_preview_merge_target_not_found_returns_404(self, client):
+        source = client.post("/tags", json={"name": "bug"}).json()
+        
+        response = client.post(
+            "/tags/merge/preview",
+            json={
+                "target_tag_id": 99999,
+                "source_tag_ids": [source["id"]]
+            },
+        )
+        assert response.status_code == 404
+        assert "Tag not found" in response.json()["detail"]
+
+    def test_preview_merge_unused_tags(self, client):
+        target = client.post("/tags", json={"name": "Bug"}).json()
+        source1 = client.post("/tags", json={"name": "bug"}).json()
+        source2 = client.post("/tags", json={"name": "BUG"}).json()
+        
+        response = client.post(
+            "/tags/merge/preview",
+            json={
+                "target_tag_id": target["id"],
+                "source_tag_ids": [source1["id"], source2["id"]]
+            },
+        )
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert data["tickets_to_migrate"] == 0
+        assert data["target_current_ticket_count"] == 0
+        assert data["target_after_merge_ticket_count"] == 0
+        assert data["total_tags_to_delete"] == 2
+
+    def test_preview_merge_with_duplicates_in_source(self, client):
+        target = client.post("/tags", json={"name": "Bug"}).json()
+        source = client.post("/tags", json={"name": "bug"}).json()
+        
+        client.post("/tickets", json={"title": "T1", "status": "open", "tag_ids": [source["id"]]})
+        
+        response = client.post(
+            "/tags/merge/preview",
+            json={
+                "target_tag_id": target["id"],
+                "source_tag_ids": [source["id"], source["id"], source["id"]]
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["total_tags_to_delete"] == 1

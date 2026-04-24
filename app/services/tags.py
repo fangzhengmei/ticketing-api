@@ -16,6 +16,24 @@ class TagMergeResult:
     deleted_tag_names: List[str]
 
 
+@dataclass
+class TagMergePreviewSource:
+    id: int
+    name: str
+    color: str
+    current_ticket_count: int
+
+
+@dataclass
+class TagMergePreviewResult:
+    target_tag: TagDB
+    target_current_ticket_count: int
+    target_after_merge_ticket_count: int
+    sources_to_delete: List[TagMergePreviewSource]
+    tickets_to_migrate: int
+    total_tags_to_delete: int
+
+
 def list_tags(
     db: Session,
     limit: int,
@@ -235,4 +253,76 @@ def merge_tags(
         migrated_ticket_count=total_migrated,
         deleted_tag_count=len(source_tags),
         deleted_tag_names=deleted_names,
+    )
+
+
+def preview_merge_tags(
+    db: Session,
+    target_tag_id: int,
+    source_tag_ids: List[int],
+) -> TagMergePreviewResult:
+    if not source_tag_ids:
+        raise HTTPException(
+            status_code=422,
+            detail="source_tag_ids cannot be empty"
+        )
+    
+    unique_source_ids = list(set(source_tag_ids))
+    
+    if target_tag_id in unique_source_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="target_tag_id cannot be in source_tag_ids"
+        )
+    
+    target_tag = get_tag(db, target_tag_id)
+    
+    source_tags = db.query(TagDB).filter(TagDB.id.in_(unique_source_ids)).all()
+    
+    if len(source_tags) != len(unique_source_ids):
+        found_ids = {tag.id for tag in source_tags}
+        missing_ids = [tid for tid in unique_source_ids if tid not in found_ids]
+        raise HTTPException(
+            status_code=404,
+            detail=f"Source tags not found: {missing_ids}"
+        )
+    
+    ticket_ids_with_target = db.query(ticket_tags.c.ticket_id).filter(
+        ticket_tags.c.tag_id == target_tag_id
+    ).all()
+    ticket_ids_with_target = {row[0] for row in ticket_ids_with_target}
+    
+    all_source_ticket_ids = set()
+    sources_to_delete = []
+    total_tickets_to_migrate = 0
+    
+    for source_tag in source_tags:
+        ticket_ids_with_source = db.query(ticket_tags.c.ticket_id).filter(
+            ticket_tags.c.tag_id == source_tag.id
+        ).all()
+        ticket_ids_with_source = {row[0] for row in ticket_ids_with_source}
+        
+        all_source_ticket_ids.update(ticket_ids_with_source)
+        
+        tickets_to_migrate_for_source = ticket_ids_with_source - ticket_ids_with_target
+        total_tickets_to_migrate += len(tickets_to_migrate_for_source)
+        
+        sources_to_delete.append(
+            TagMergePreviewSource(
+                id=source_tag.id,
+                name=source_tag.name,
+                color=source_tag.color,
+                current_ticket_count=len(ticket_ids_with_source),
+            )
+        )
+    
+    target_after_merge_count = len(ticket_ids_with_target | all_source_ticket_ids)
+    
+    return TagMergePreviewResult(
+        target_tag=target_tag,
+        target_current_ticket_count=len(ticket_ids_with_target),
+        target_after_merge_ticket_count=target_after_merge_count,
+        sources_to_delete=sources_to_delete,
+        tickets_to_migrate=total_tickets_to_migrate,
+        total_tags_to_delete=len(source_tags),
     )

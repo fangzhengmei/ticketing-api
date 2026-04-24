@@ -8,7 +8,7 @@ from app.models import (
     Ticket, TicketCreate, TicketUpdate, MessageResponse,
     TicketListResponse, TicketStatus,
     Tag, TagCreate, TagUpdate, TagListResponse, TagUsageResponse,
-    TagMergeRequest, TagMergeResponse
+    TagMergeRequest, TagMergeResponse, TagMergePreviewResponse, TagMergePreviewSource
 )
 
 from app.services import tickets as tickets_service
@@ -84,6 +84,31 @@ def merge_tags(payload: TagMergeRequest, db: Session = Depends(get_db)):
         migrated_ticket_count=result.migrated_ticket_count,
         deleted_tag_count=result.deleted_tag_count,
         deleted_tag_names=result.deleted_tag_names,
+    )
+
+
+@router.post("/tags/merge/preview", response_model=TagMergePreviewResponse)
+def preview_merge_tags(payload: TagMergeRequest, db: Session = Depends(get_db)):
+    result = tags_service.preview_merge_tags(
+        db=db,
+        target_tag_id=payload.target_tag_id,
+        source_tag_ids=payload.source_tag_ids,
+    )
+    return TagMergePreviewResponse(
+        target_tag=Tag.model_validate(result.target_tag),
+        target_current_ticket_count=result.target_current_ticket_count,
+        target_after_merge_ticket_count=result.target_after_merge_ticket_count,
+        sources_to_delete=[
+            TagMergePreviewSource(
+                id=s.id,
+                name=s.name,
+                color=s.color,
+                current_ticket_count=s.current_ticket_count,
+            )
+            for s in result.sources_to_delete
+        ],
+        tickets_to_migrate=result.tickets_to_migrate,
+        total_tags_to_delete=result.total_tags_to_delete,
     )
 
 
