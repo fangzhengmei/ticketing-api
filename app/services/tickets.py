@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
+from datetime import datetime
 
 from app.db_models import TicketDB
 from app.models import TicketCreate, TicketUpdate, TicketStatus
@@ -12,11 +13,36 @@ ALLOWED_TRANSITIONS = {
 }
 
 
-def list_tickets(db: Session, limit: int, offset: int):
-    total = db.query(TicketDB).count()
+def calculate_is_overdue(ticket: TicketDB) -> bool:
+    if ticket.deadline is None:
+        return False
+    if ticket.status == TicketStatus.resolved.value:
+        return False
+    return ticket.deadline < datetime.utcnow()
+
+
+def list_tickets(db: Session, limit: int, offset: int, is_overdue: bool = None):
+    query = db.query(TicketDB)
+    
+    if is_overdue is not None:
+        now = datetime.utcnow()
+        if is_overdue:
+            query = query.filter(
+                TicketDB.deadline.isnot(None),
+                TicketDB.deadline < now,
+                TicketDB.status != TicketStatus.resolved.value
+            )
+        else:
+            query = query.filter(
+                (TicketDB.deadline.is_(None)) | 
+                (TicketDB.deadline >= now) | 
+                (TicketDB.status == TicketStatus.resolved.value)
+            )
+    
+    total = query.count()
 
     items = (
-        db.query(TicketDB)
+        query
         .order_by(TicketDB.id)
         .offset(offset)
         .limit(limit)
@@ -39,26 +65,33 @@ def get_ticket(db: Session, ticket_id: int) -> TicketDB:
 
 
 def create_ticket(db: Session, payload: TicketCreate) -> TicketDB:
-    ticket = TicketDB(title=payload.title, status=payload.status.value)
+    ticket = TicketDB(
+        title=payload.title, 
+        status=payload.status.value,
+        deadline=payload.deadline
+    )
     db.add(ticket)
     db.commit()
     db.refresh(ticket)
     return ticket
 
 
-def update_ticket_status(db: Session, ticket_id: int, payload: TicketUpdate) -> TicketDB:
+def update_ticket(db: Session, ticket_id: int, payload: TicketUpdate) -> TicketDB:
     ticket = get_ticket(db, ticket_id)
+    
+    if payload.status is not None:
+        current = TicketStatus(ticket.status)
+        new = payload.status
 
-    current = TicketStatus(ticket.status)
-    new = payload.status
+        if new != current:
+            if new not in ALLOWED_TRANSITIONS[current]:
+                raise HTTPException(status_code=409, detail="Invalid status transition")
 
-    if new == current:
-        return ticket
-
-    if new not in ALLOWED_TRANSITIONS[current]:
-        raise HTTPException(status_code=409, detail="Invalid status transition")
-
-    ticket.status = new.value
+            ticket.status = new.value
+    
+    if payload.deadline is not None:
+        ticket.deadline = payload.deadline
+    
     db.commit()
     db.refresh(ticket)
     return ticket

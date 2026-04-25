@@ -1,6 +1,7 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from typing import Optional
 from enum import Enum
+from datetime import datetime
 
 class TicketStatus(str, Enum):
     open = "open"
@@ -11,16 +12,20 @@ class TicketStatus(str, Enum):
 class TicketCreate(BaseModel):
     title: str
     status: TicketStatus = TicketStatus.open
+    deadline: Optional[datetime] = None
 
 
 class TicketUpdate(BaseModel):
-    status: TicketStatus
+    status: Optional[TicketStatus] = None
+    deadline: Optional[datetime] = None
 
 
 class Ticket(BaseModel):
     id: int
     title: str
     status: TicketStatus
+    deadline: Optional[datetime] = None
+    is_overdue: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
