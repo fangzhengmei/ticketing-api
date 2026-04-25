@@ -79,17 +79,18 @@ def create_ticket(db: Session, payload: TicketCreate) -> TicketDB:
 def update_ticket(db: Session, ticket_id: int, payload: TicketUpdate) -> TicketDB:
     ticket = get_ticket(db, ticket_id)
     
-    if payload.status is not None:
-        current = TicketStatus(ticket.status)
+    if 'status' in payload.model_fields_set:
         new = payload.status
+        if new is not None:
+            current = TicketStatus(ticket.status)
 
-        if new != current:
-            if new not in ALLOWED_TRANSITIONS[current]:
-                raise HTTPException(status_code=409, detail="Invalid status transition")
+            if new != current:
+                if new not in ALLOWED_TRANSITIONS[current]:
+                    raise HTTPException(status_code=409, detail="Invalid status transition")
 
-            ticket.status = new.value
+                ticket.status = new.value
     
-    if payload.deadline is not None:
+    if 'deadline' in payload.model_fields_set:
         ticket.deadline = payload.deadline
     
     db.commit()

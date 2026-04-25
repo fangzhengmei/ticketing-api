@@ -330,6 +330,58 @@ def test_patch_update_deadline(client):
     assert updated.json()["is_overdue"] is False
 
 
+def test_patch_clear_deadline_with_null(client):
+    future_deadline = (datetime.utcnow() + timedelta(days=3)).isoformat() + "Z"
+    
+    created = client.post(
+        "/tickets",
+        json={
+            "title": "Ticket with deadline to clear",
+            "status": "open",
+            "deadline": future_deadline
+        },
+    )
+    assert created.status_code == 201
+    ticket_id = created.json()["id"]
+    assert created.json()["deadline"] is not None
+    
+    cleared = client.patch(
+        f"/tickets/{ticket_id}",
+        json={"deadline": None}
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["deadline"] is None
+    
+    verify = client.get(f"/tickets/{ticket_id}")
+    assert verify.json()["deadline"] is None
+    assert verify.json()["is_overdue"] is False
+
+
+def test_patch_empty_body_does_not_change_deadline(client):
+    future_deadline = (datetime.utcnow() + timedelta(days=3)).isoformat() + "Z"
+    
+    created = client.post(
+        "/tickets",
+        json={
+            "title": "Ticket with deadline",
+            "status": "open",
+            "deadline": future_deadline
+        },
+    )
+    assert created.status_code == 201
+    ticket_id = created.json()["id"]
+    original_deadline = created.json()["deadline"]
+    assert original_deadline is not None
+    
+    patched = client.patch(
+        f"/tickets/{ticket_id}",
+        json={}
+    )
+    assert patched.status_code == 200
+    assert patched.json()["deadline"] == original_deadline
+    assert patched.json()["deadline"] is not None
+
+
 def test_filter_tickets_by_is_overdue_true(client):
     past_deadline = (datetime.utcnow() - timedelta(hours=1)).isoformat() + "Z"
     future_deadline = (datetime.utcnow() + timedelta(days=1)).isoformat() + "Z"
