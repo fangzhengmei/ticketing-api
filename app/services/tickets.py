@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.db_models import TicketDB
 from app.models import TicketCreate, TicketUpdate, TicketStatus
@@ -13,19 +13,23 @@ ALLOWED_TRANSITIONS = {
 }
 
 
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 def calculate_is_overdue(ticket: TicketDB) -> bool:
     if ticket.deadline is None:
         return False
     if ticket.status == TicketStatus.resolved.value:
         return False
-    return ticket.deadline < datetime.utcnow()
+    return ticket.deadline < _utcnow()
 
 
 def list_tickets(db: Session, limit: int, offset: int, is_overdue: bool = None):
     query = db.query(TicketDB)
     
     if is_overdue is not None:
-        now = datetime.utcnow()
+        now = _utcnow()
         if is_overdue:
             query = query.filter(
                 TicketDB.deadline.isnot(None),

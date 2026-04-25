@@ -171,7 +171,7 @@ from datetime import datetime, timedelta, timezone
 
 
 def test_create_ticket_with_deadline(client):
-    future_deadline = (datetime.utcnow() + timedelta(days=1)).isoformat() + "Z"
+    future_deadline = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1)).isoformat() + "Z"
     
     response = client.post(
         "/tickets",
@@ -209,7 +209,7 @@ def test_create_ticket_without_deadline(client):
 
 
 def test_is_overdue_not_expired_ticket(client):
-    future_deadline = (datetime.utcnow() + timedelta(days=7)).isoformat() + "Z"
+    future_deadline = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=7)).isoformat() + "Z"
     
     response = client.post(
         "/tickets",
@@ -231,7 +231,7 @@ def test_is_overdue_not_expired_ticket(client):
 
 
 def test_is_overdue_expired_ticket(client):
-    past_deadline = (datetime.utcnow() - timedelta(hours=1)).isoformat() + "Z"
+    past_deadline = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)).isoformat() + "Z"
     
     response = client.post(
         "/tickets",
@@ -253,7 +253,7 @@ def test_is_overdue_expired_ticket(client):
 
 
 def test_is_overdue_in_progress_expired_ticket(client):
-    past_deadline = (datetime.utcnow() - timedelta(hours=1)).isoformat() + "Z"
+    past_deadline = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)).isoformat() + "Z"
     
     response = client.post(
         "/tickets",
@@ -270,7 +270,7 @@ def test_is_overdue_in_progress_expired_ticket(client):
 
 
 def test_is_overdue_resolved_ticket_not_expired(client):
-    future_deadline = (datetime.utcnow() + timedelta(days=1)).isoformat() + "Z"
+    future_deadline = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1)).isoformat() + "Z"
     
     created = client.post(
         "/tickets",
@@ -291,7 +291,7 @@ def test_is_overdue_resolved_ticket_not_expired(client):
 
 
 def test_is_overdue_resolved_ticket_even_if_deadline_passed(client):
-    past_deadline = (datetime.utcnow() - timedelta(hours=1)).isoformat() + "Z"
+    past_deadline = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)).isoformat() + "Z"
     
     created = client.post(
         "/tickets",
@@ -320,7 +320,7 @@ def test_patch_update_deadline(client):
     ticket_id = created.json()["id"]
     assert created.json()["deadline"] is None
     
-    future_deadline = (datetime.utcnow() + timedelta(days=3)).isoformat() + "Z"
+    future_deadline = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=3)).isoformat() + "Z"
     updated = client.patch(
         f"/tickets/{ticket_id}",
         json={"deadline": future_deadline}
@@ -331,7 +331,7 @@ def test_patch_update_deadline(client):
 
 
 def test_patch_clear_deadline_with_null(client):
-    future_deadline = (datetime.utcnow() + timedelta(days=3)).isoformat() + "Z"
+    future_deadline = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=3)).isoformat() + "Z"
     
     created = client.post(
         "/tickets",
@@ -358,7 +358,7 @@ def test_patch_clear_deadline_with_null(client):
 
 
 def test_patch_empty_body_does_not_change_deadline(client):
-    future_deadline = (datetime.utcnow() + timedelta(days=3)).isoformat() + "Z"
+    future_deadline = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=3)).isoformat() + "Z"
     
     created = client.post(
         "/tickets",
@@ -383,8 +383,8 @@ def test_patch_empty_body_does_not_change_deadline(client):
 
 
 def test_filter_tickets_by_is_overdue_true(client):
-    past_deadline = (datetime.utcnow() - timedelta(hours=1)).isoformat() + "Z"
-    future_deadline = (datetime.utcnow() + timedelta(days=1)).isoformat() + "Z"
+    past_deadline = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)).isoformat() + "Z"
+    future_deadline = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1)).isoformat() + "Z"
     
     client.post("/tickets", json={
         "title": "Expired ticket 1",
@@ -417,8 +417,8 @@ def test_filter_tickets_by_is_overdue_true(client):
 
 
 def test_filter_tickets_by_is_overdue_false(client):
-    past_deadline = (datetime.utcnow() - timedelta(hours=1)).isoformat() + "Z"
-    future_deadline = (datetime.utcnow() + timedelta(days=1)).isoformat() + "Z"
+    past_deadline = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)).isoformat() + "Z"
+    future_deadline = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1)).isoformat() + "Z"
     
     client.post("/tickets", json={
         "title": "Expired ticket",
@@ -450,8 +450,8 @@ def test_filter_tickets_by_is_overdue_false(client):
 
 
 def test_filter_without_is_overdue_returns_all(client):
-    past_deadline = (datetime.utcnow() - timedelta(hours=1)).isoformat() + "Z"
-    future_deadline = (datetime.utcnow() + timedelta(days=1)).isoformat() + "Z"
+    past_deadline = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)).isoformat() + "Z"
+    future_deadline = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1)).isoformat() + "Z"
     
     client.post("/tickets", json={
         "title": "Expired",
