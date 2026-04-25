@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
+from datetime import datetime
 
 from app.db_models import TicketDB
 from app.models import TicketCreate, TicketUpdate, TicketStatus
@@ -57,6 +58,19 @@ def update_ticket_status(db: Session, ticket_id: int, payload: TicketUpdate) -> 
 
     if new not in ALLOWED_TRANSITIONS[current]:
         raise HTTPException(status_code=409, detail="Invalid status transition")
+
+    if new == TicketStatus.resolved:
+        if not payload.solution:
+            raise HTTPException(
+                status_code=400,
+                detail="Solution is required when resolving a ticket"
+            )
+        ticket.solution = payload.solution
+        ticket.solution_time = datetime.now(datetime.timezone.utc)
+        if payload.resolved_by:
+            ticket.resolved_by = payload.resolved_by
+        if payload.resolution_category:
+            ticket.resolution_category = payload.resolution_category.value
 
     ticket.status = new.value
     db.commit()

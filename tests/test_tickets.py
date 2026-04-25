@@ -144,7 +144,11 @@ def test_status_transitions_allowed(client, start_status, new_status):
     assert created.status_code == 201
     ticket_id = created.json()["id"]
 
-    res = client.patch(f"/tickets/{ticket_id}", json={"status": new_status})
+    payload = {"status": new_status}
+    if new_status == "resolved":
+        payload["solution"] = "问题已通过修复相关代码解决"
+
+    res = client.patch(f"/tickets/{ticket_id}", json=payload)
     assert res.status_code == 200
     assert res.json()["status"] == new_status
 
@@ -165,3 +169,80 @@ def test_status_transitions_forbidden_return_409(client, start_status, new_statu
     res = client.patch(f"/tickets/{ticket_id}", json={"status": new_status})
     assert res.status_code == 409
     assert res.json()["detail"] == "Invalid status transition"
+
+
+def test_resolve_ticket_without_solution_returns_400(client):
+    created = client.post("/tickets", json={"title": "Test ticket", "status": "open"})
+    assert created.status_code == 201
+    ticket_id = created.json()["id"]
+
+    res = client.patch(f"/tickets/{ticket_id}", json={"status": "resolved"})
+    assert res.status_code == 400
+    assert res.json()["detail"] == "Solution is required when resolving a ticket"
+
+
+def test_resolve_ticket_with_solution_records_all_fields(client):
+    created = client.post("/tickets", json={"title": "Test ticket", "status": "open"})
+    assert created.status_code == 201
+    ticket_id = created.json()["id"]
+
+    solution_text = "通过修复数据库连接池配置解决了连接超时问题，增加了最大连接数并调整了超时设置。"
+    resolved_by = "张三"
+    resolution_category = "configuration"
+
+    res = client.patch(
+        f"/tickets/{ticket_id}",
+        json={
+            "status": "resolved",
+            "solution": solution_text,
+            "resolved_by": resolved_by,
+            "resolution_category": resolution_category
+        }
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "resolved"
+    assert data["solution"] == solution_text
+    assert data["resolved_by"] == resolved_by
+    assert data["resolution_category"] == resolution_category
+    assert data["solution_time"] is not None
+
+
+def test_get_resolved_ticket_includes_solution_info(client):
+    created = client.post("/tickets", json={"title": "Test ticket", "status": "in_progress"})
+    assert created.status_code == 201
+    ticket_id = created.json()["id"]
+
+    solution_text = "代码逻辑错误，已修复并重新部署。"
+    res = client.patch(
+        f"/tickets/{ticket_id}",
+        json={
+            "status": "resolved",
+            "solution": solution_text,
+            "resolution_category": "code_fix"
+        }
+    )
+    assert res.status_code == 200
+
+    get_res = client.get(f"/tickets/{ticket_id}")
+    assert get_res.status_code == 200
+    data = get_res.json()
+    assert data["solution"] == solution_text
+    assert data["resolution_category"] == "code_fix"
+    assert data["solution_time"] is not None
+
+
+def test_invalid_resolution_category_returns_422(client):
+    created = client.post("/tickets", json={"title": "Test ticket", "status": "open"})
+    assert created.status_code == 201
+    ticket_id = created.json()["id"]
+
+    res = client.patch(
+        f"/tickets/{ticket_id}",
+        json={
+            "status": "resolved",
+            "solution": "测试解决方案",
+            "resolution_category": "invalid_category"
+        }
+    )
+    assert res.status_code == 422
