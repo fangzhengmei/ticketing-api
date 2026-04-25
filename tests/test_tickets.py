@@ -246,3 +246,153 @@ def test_invalid_resolution_category_returns_422(client):
         }
     )
     assert res.status_code == 422
+
+
+def test_list_tickets_filter_by_status(client):
+    client.post("/tickets", json={"title": "Open ticket 1", "status": "open"})
+    client.post("/tickets", json={"title": "Open ticket 2", "status": "open"})
+    client.post("/tickets", json={"title": "In progress ticket", "status": "in_progress"})
+
+    res = client.get("/tickets?status=open")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 2
+    assert len(data["items"]) == 2
+
+    res = client.get("/tickets?status=in_progress")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+
+
+def test_list_tickets_filter_by_resolution_category(client):
+    created1 = client.post("/tickets", json={"title": "Ticket 1", "status": "open"})
+    created2 = client.post("/tickets", json={"title": "Ticket 2", "status": "open"})
+    created3 = client.post("/tickets", json={"title": "Ticket 3", "status": "open"})
+
+    client.patch(
+        f"/tickets/{created1.json()['id']}",
+        json={
+            "status": "resolved",
+            "solution": "代码修复",
+            "resolution_category": "code_fix"
+        }
+    )
+    client.patch(
+        f"/tickets/{created2.json()['id']}",
+        json={
+            "status": "resolved",
+            "solution": "配置调整",
+            "resolution_category": "configuration"
+        }
+    )
+    client.patch(
+        f"/tickets/{created3.json()['id']}",
+        json={
+            "status": "resolved",
+            "solution": "另一个代码修复",
+            "resolution_category": "code_fix"
+        }
+    )
+
+    res = client.get("/tickets?resolution_category=code_fix")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 2
+    assert len(data["items"]) == 2
+
+    res = client.get("/tickets?resolution_category=configuration")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+
+
+def test_list_tickets_search_by_keyword(client):
+    created1 = client.post("/tickets", json={"title": "数据库连接超时问题", "status": "open"})
+    created2 = client.post("/tickets", json={"title": "API 响应慢", "status": "open"})
+    created3 = client.post("/tickets", json={"title": "用户登录失败", "status": "open"})
+
+    client.patch(
+        f"/tickets/{created1.json()['id']}",
+        json={
+            "status": "resolved",
+            "solution": "通过优化数据库连接池配置解决了超时问题",
+            "resolution_category": "configuration"
+        }
+    )
+    client.patch(
+        f"/tickets/{created2.json()['id']}",
+        json={
+            "status": "resolved",
+            "solution": "添加了缓存层来提高 API 响应速度",
+            "resolution_category": "code_fix"
+        }
+    )
+
+    res = client.get("/tickets?keyword=数据库")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+    assert "数据库" in data["items"][0]["title"]
+
+    res = client.get("/tickets?keyword=API")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+    assert "API" in data["items"][0]["title"]
+
+    res = client.get("/tickets?keyword=连接池")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+    assert "连接池" in data["items"][0]["solution"]
+
+
+def test_list_tickets_combined_filters(client):
+    created1 = client.post("/tickets", json={"title": "数据库连接超时", "status": "open"})
+    created2 = client.post("/tickets", json={"title": "API 响应慢", "status": "open"})
+    created3 = client.post("/tickets", json={"title": "未解决的问题", "status": "open"})
+
+    client.patch(
+        f"/tickets/{created1.json()['id']}",
+        json={
+            "status": "resolved",
+            "solution": "配置调整解决了数据库问题",
+            "resolution_category": "configuration"
+        }
+    )
+    client.patch(
+        f"/tickets/{created2.json()['id']}",
+        json={
+            "status": "resolved",
+            "solution": "代码修复提高了 API 响应速度",
+            "resolution_category": "code_fix"
+        }
+    )
+
+    res = client.get("/tickets?status=resolved&resolution_category=code_fix")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+    assert data["items"][0]["resolution_category"] == "code_fix"
+
+    res = client.get("/tickets?status=resolved&keyword=数据库")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+    assert "数据库" in data["items"][0]["title"]
+
+    res = client.get("/tickets?status=resolved&resolution_category=code_fix&keyword=API")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+    assert "API" in data["items"][0]["title"]
+    assert data["items"][0]["resolution_category"] == "code_fix"

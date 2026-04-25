@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -6,7 +7,7 @@ from app.database import get_db
 from app.db_models import TicketDB
 from app.models import Ticket, TicketCreate, TicketUpdate, MessageResponse
 from app.models import TicketListResponse
-from app.models import TicketStatus  # μαζί με τα άλλα imports
+from app.models import TicketStatus, ResolutionCategory
 
 from app.services import tickets as tickets_service
 
@@ -29,9 +30,19 @@ def health():
 def list_tickets(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    status: Optional[TicketStatus] = Query(None, description="Filter by ticket status"),
+    resolution_category: Optional[ResolutionCategory] = Query(None, description="Filter by resolution category"),
+    keyword: Optional[str] = Query(None, description="Search keyword in title and solution"),
     db: Session = Depends(get_db)
 ):
-    return tickets_service.list_tickets(db=db, limit=limit, offset=offset)
+    return tickets_service.list_tickets(
+        db=db,
+        limit=limit,
+        offset=offset,
+        status=status,
+        resolution_category=resolution_category,
+        keyword=keyword
+    )
 
 
 @router.get("/tickets/{ticket_id}", response_model=Ticket)

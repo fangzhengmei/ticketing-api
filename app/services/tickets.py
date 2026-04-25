@@ -1,9 +1,10 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
-from datetime import datetime
+from datetime import datetime, timezone
+from sqlalchemy import or_
 
 from app.db_models import TicketDB
-from app.models import TicketCreate, TicketUpdate, TicketStatus
+from app.models import TicketCreate, TicketUpdate, TicketStatus, ResolutionCategory
 
 
 ALLOWED_TRANSITIONS = {
@@ -13,11 +14,35 @@ ALLOWED_TRANSITIONS = {
 }
 
 
-def list_tickets(db: Session, limit: int, offset: int):
-    total = db.query(TicketDB).count()
+def list_tickets(
+    db: Session,
+    limit: int,
+    offset: int,
+    status: TicketStatus = None,
+    resolution_category: ResolutionCategory = None,
+    keyword: str = None
+):
+    query = db.query(TicketDB)
+
+    if status:
+        query = query.filter(TicketDB.status == status.value)
+
+    if resolution_category:
+        query = query.filter(TicketDB.resolution_category == resolution_category.value)
+
+    if keyword:
+        keyword_lower = keyword.lower()
+        query = query.filter(
+            or_(
+                TicketDB.title.ilike(f"%{keyword}%"),
+                TicketDB.solution.ilike(f"%{keyword}%")
+            )
+        )
+
+    total = query.count()
 
     items = (
-        db.query(TicketDB)
+        query
         .order_by(TicketDB.id)
         .offset(offset)
         .limit(limit)
@@ -66,7 +91,7 @@ def update_ticket_status(db: Session, ticket_id: int, payload: TicketUpdate) -> 
                 detail="Solution is required when resolving a ticket"
             )
         ticket.solution = payload.solution
-        ticket.solution_time = datetime.now(datetime.timezone.utc)
+        ticket.solution_time = datetime.now(timezone.utc)
         if payload.resolved_by:
             ticket.resolved_by = payload.resolved_by
         if payload.resolution_category:
